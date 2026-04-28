@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.pytest_cache/
+data/raw/
+data/processed/
+!data/processed/ground_truth.json
+*.db
+.chroma/
