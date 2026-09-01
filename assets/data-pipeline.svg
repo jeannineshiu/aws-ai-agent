@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="820" viewBox="0 0 1240 820" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748B"/>
+    </marker>
+  </defs>
+
+  <rect width="1240" height="820" fill="#FFFFFF"/>
+
+  <text x="40" y="44" font-size="19" font-weight="700" fill="#0F1B2A">Data Pipeline — ingestion, chunking, indexing, evaluation</text>
+  <text x="40" y="66" font-size="11.5" fill="#7A8A9A">Built once, offline. None of these steps run at query time — the agent only reads the two stores on the right.</text>
+
+  <!-- ===== stage headers ===== -->
+  <circle cx="49" cy="104" r="9" fill="#CBD5E1"/><text x="49" y="108" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">1</text>
+  <text x="66" y="108" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.2">SOURCE</text>
+  <circle cx="269" cy="104" r="9" fill="#CBD5E1"/><text x="269" y="108" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">2</text>
+  <text x="286" y="108" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.2">EXTRACT</text>
+  <circle cx="519" cy="104" r="9" fill="#CBD5E1"/><text x="519" y="108" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">3</text>
+  <text x="536" y="108" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.2">TRANSFORM</text>
+  <circle cx="769" cy="104" r="9" fill="#CBD5E1"/><text x="769" y="108" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">4</text>
+  <text x="786" y="108" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.2">INDEX</text>
+  <circle cx="999" cy="104" r="9" fill="#CBD5E1"/><text x="999" y="108" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">5</text>
+  <text x="1016" y="108" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.2">STORE</text>
+
+  <!-- ===== ROW 1 · AWS DOCS ===== -->
+  <rect x="40" y="132" width="180" height="104" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <rect x="40" y="132" width="4" height="104" rx="2" fill="#0F766E"/>
+  <text x="58" y="158" font-size="12" font-weight="700" fill="#1E2B3A">AWS Documentation</text>
+  <text x="58" y="177" font-size="9.5" fill="#8B98A5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">docs.aws.amazon.com</text>
+  <text x="58" y="196" font-size="10" fill="#5B6B7C">21 URLs requested</text>
+  <text x="58" y="213" font-size="10" fill="#5B6B7C">18 pages captured</text>
+  <text x="58" y="228" font-size="9.5" fill="#8B98A5">5 service guides</text>
+
+  <path d="M 220 184 L 256 184" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="260" y="132" width="210" height="104" rx="7" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="278" y="156" font-size="11.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">fetch_aws_docs.py</text>
+  <text x="278" y="175" font-size="10" fill="#5B6B7C">httpx + BeautifulSoup (lxml)</text>
+  <text x="278" y="191" font-size="10" fill="#5B6B7C">#main-content, nav/footer</text>
+  <text x="278" y="207" font-size="10" fill="#5B6B7C">and widgets decomposed</text>
+  <text x="278" y="226" font-size="9.5" fill="#0F766E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">raw/aws_docs/docs.json</text>
+
+  <path d="M 470 184 L 506 184" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="510" y="132" width="210" height="104" rx="7" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="528" y="156" font-size="11.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">build_chunks.py</text>
+  <text x="528" y="175" font-size="9.5" fill="#5B6B7C">RecursiveCharacterTextSplitter</text>
+  <text x="528" y="191" font-size="10" fill="#5B6B7C">size 800 · overlap 150</text>
+  <text x="528" y="207" font-size="10" fill="#5B6B7C">para → line → sentence → word</text>
+  <text x="528" y="226" font-size="9.5" fill="#0F766E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">processed/chunks.json · 156</text>
+
+  <path d="M 720 184 L 756 184" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="760" y="132" width="190" height="104" rx="7" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="778" y="156" font-size="11.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">build_vectorstore.py</text>
+  <text x="778" y="175" font-size="10" fill="#5B6B7C">OpenAI embeddings</text>
+  <text x="778" y="191" font-size="9.5" fill="#5B6B7C" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">text-embedding-3-small</text>
+  <text x="778" y="209" font-size="10" fill="#5B6B7C">metadata carried through:</text>
+  <text x="778" y="225" font-size="9.5" fill="#8B98A5">source · title · service · index</text>
+
+  <path d="M 950 184 L 986 184" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="990" y="132" width="210" height="104" rx="7" fill="#F6F3FF" stroke="#7C3AED" stroke-width="1.5"/>
+  <text x="1008" y="158" font-size="12.5" font-weight="700" fill="#5B21B6">ChromaDB</text>
+  <text x="1008" y="177" font-size="9.5" fill="#6D28D9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">processed/chroma</text>
+  <text x="1008" y="196" font-size="10" fill="#5B6B7C">collection: aws_docs</text>
+  <text x="1008" y="213" font-size="10" fill="#5B6B7C">156 vectors · persistent</text>
+  <text x="1008" y="228" font-size="9.5" fill="#8B98A5">rebuilt from scratch each run</text>
+
+  <!-- ===== ROW 2 · GITHUB ===== -->
+  <rect x="40" y="264" width="180" height="104" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <rect x="40" y="264" width="4" height="104" rx="2" fill="#B45309"/>
+  <text x="58" y="290" font-size="12" font-weight="700" fill="#1E2B3A">GitHub REST API</text>
+  <text x="58" y="309" font-size="9.5" fill="#8B98A5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">api.github.com</text>
+  <text x="58" y="328" font-size="10" fill="#5B6B7C">6 AWS ML repos polled</text>
+  <text x="58" y="345" font-size="10" fill="#5B6B7C">4 returned issues</text>
+  <text x="58" y="360" font-size="9.5" fill="#8B98A5">open and closed states</text>
+
+  <path d="M 220 316 L 256 316" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="260" y="264" width="210" height="104" rx="7" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="278" y="288" font-size="11.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">fetch_github_issues.py</text>
+  <text x="278" y="307" font-size="10" fill="#5B6B7C">token auth · 100 per page</text>
+  <text x="278" y="323" font-size="10" fill="#5B6B7C">up to 10 pages per state</text>
+  <text x="278" y="339" font-size="10" fill="#5B6B7C">pull requests filtered out</text>
+  <text x="278" y="358" font-size="9.5" fill="#8B98A5">0.8 s pause · 403 backs off 60 s</text>
+
+  <path d="M 470 316 L 506 316" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="510" y="264" width="440" height="104" rx="7" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="528" y="288" font-size="11.5" font-weight="700" fill="#1E2B3A">Normalise and load — no embedding step</text>
+  <text x="528" y="308" font-size="10" fill="#5B6B7C">Labels flattened to a JSON array; repo, issue_number, title, body, state, comments,</text>
+  <text x="528" y="324" font-size="10" fill="#5B6B7C">created_at, closed_at and url kept as typed columns for aggregation.</text>
+  <text x="528" y="348" font-size="10" fill="#92400E">Order matters: this script drops and recreates issues.db, so it must run before the</text>
+  <text x="528" y="362" font-size="10" fill="#92400E">Stack Overflow import below.</text>
+
+  <path d="M 950 316 L 986 316" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <!-- ===== ROW 3 · STACK OVERFLOW ===== -->
+  <rect x="40" y="396" width="180" height="104" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <rect x="40" y="396" width="4" height="104" rx="2" fill="#B45309"/>
+  <text x="58" y="422" font-size="12" font-weight="700" fill="#1E2B3A">Stack Exchange</text>
+  <text x="58" y="441" font-size="9.5" fill="#8B98A5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Data Explorer export</text>
+  <text x="58" y="460" font-size="10" fill="#5B6B7C">CSV, downloaded manually</text>
+  <text x="58" y="477" font-size="10" fill="#5B6B7C">AWS AI/ML tagged posts</text>
+  <text x="58" y="492" font-size="9.5" fill="#8B98A5">optional step</text>
+
+  <path d="M 220 448 L 256 448" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="260" y="396" width="210" height="104" rx="7" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="278" y="420" font-size="11.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">import_stackoverflow.py</text>
+  <text x="278" y="439" font-size="10" fill="#5B6B7C">pandas.read_csv</text>
+  <text x="278" y="455" font-size="10" fill="#5B6B7C">row-by-row insert</text>
+  <text x="278" y="471" font-size="10" fill="#5B6B7C">INSERT OR IGNORE on post id</text>
+  <text x="278" y="490" font-size="9.5" fill="#8B98A5">re-runnable without duplicates</text>
+
+  <path d="M 470 448 L 506 448" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="510" y="396" width="440" height="104" rx="7" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="528" y="420" font-size="11.5" font-weight="700" fill="#1E2B3A">Column mapping — no embedding step</text>
+  <text x="528" y="440" font-size="10" fill="#5B6B7C">Id, Title, Body, Tags, Score, ViewCount, AnswerCount, CommentCount, CreationDate,</text>
+  <text x="528" y="456" font-size="10" fill="#5B6B7C">ClosedDate are mapped onto snake_case columns; NaN close dates become NULL.</text>
+  <text x="528" y="480" font-size="10" fill="#5B6B7C">Tags stay in their raw pipe form, which is why the SQL prompt teaches the LLM to</text>
+  <text x="528" y="494" font-size="10" fill="#5B6B7C">match them with LIKE '%&lt;tag-name&gt;%'.</text>
+
+  <path d="M 950 448 L 986 448" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <!-- ===== SQLITE (spans rows 2-3) ===== -->
+  <rect x="990" y="264" width="210" height="236" rx="7" fill="#F6F3FF" stroke="#7C3AED" stroke-width="1.5"/>
+  <text x="1008" y="286" font-size="12.5" font-weight="700" fill="#5B21B6">SQLite</text>
+  <text x="1182" y="285" font-size="9" fill="#8B79C4" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">issues.db</text>
+
+  <rect x="1006" y="296" width="178" height="60" rx="6" fill="#FFFFFF" stroke="#D6C9F5"/>
+  <text x="1020" y="317" font-size="11" font-weight="700" fill="#5B21B6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">issues</text>
+  <text x="1020" y="333" font-size="10" fill="#5B6B7C">283 rows · 10 columns</text>
+  <text x="1020" y="348" font-size="9.5" fill="#8B98A5">labels stored as JSON text</text>
+
+  <rect x="1006" y="368" width="178" height="60" rx="6" fill="#FFFFFF" stroke="#D6C9F5"/>
+  <text x="1020" y="389" font-size="11" font-weight="700" fill="#5B21B6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">stackoverflow</text>
+  <text x="1020" y="405" font-size="10" fill="#5B6B7C">15 462 rows · 10 columns</text>
+  <text x="1020" y="420" font-size="9.5" fill="#8B98A5">post id is the primary key</text>
+
+  <text x="1008" y="450" font-size="9.5" fill="#8B98A5">One file, opened once per process</text>
+  <text x="1008" y="465" font-size="9.5" fill="#8B98A5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">check_same_thread=False</text>
+  <text x="1008" y="484" font-size="9.5" fill="#8B98A5">so Streamlit threads can share it.</text>
+
+  <text x="1200" y="524" font-size="10" fill="#94A3B8" text-anchor="end">Both stores are read-only at query time — see the architecture diagram.</text>
+
+  <!-- ===== EVALUATION ===== -->
+  <rect x="40" y="548" width="1160" height="208" rx="10" fill="#F5F7F9" stroke="#E2E8EE"/>
+  <text x="56" y="572" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.4">EVALUATION — RUNS AFTER THE BUILD, AGAINST THE LIVE PIPELINES</text>
+
+  <rect x="60" y="592" width="210" height="132" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="78" y="618" font-size="11.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ground_truth.json</text>
+  <text x="78" y="642" font-size="10.5" fill="#5B6B7C">15 hand-written pairs</text>
+  <text x="78" y="664" font-size="10.5" fill="#0F766E">10 RAG question + answer</text>
+  <text x="78" y="682" font-size="10.5" fill="#B45309">5 natural language + SQL</text>
+  <text x="78" y="706" font-size="9.5" fill="#8B98A5">covers all 5 services</text>
+
+  <path d="M 270 658 L 306 658" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="310" y="592" width="230" height="132" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="328" y="618" font-size="11.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">run_evaluation.py</text>
+  <text x="328" y="642" font-size="10.5" fill="#5B6B7C">Runs the real RAGPipeline</text>
+  <text x="328" y="660" font-size="10.5" fill="#5B6B7C">and SQLPipeline — no mocks,</text>
+  <text x="328" y="678" font-size="10.5" fill="#5B6B7C">real retrieval, real queries.</text>
+  <text x="328" y="702" font-size="9.5" fill="#8B98A5">Retrieved chunks are captured</text>
+  <text x="328" y="716" font-size="9.5" fill="#8B98A5">as the context RAGAS scores.</text>
+
+  <path d="M 540 658 L 560 658 L 560 626 L 576 626" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <path d="M 540 658 L 560 658 L 560 696 L 576 696" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+
+  <rect x="580" y="592" width="290" height="68" rx="7" fill="#F0FAF8" stroke="#0F766E" stroke-width="1.4"/>
+  <text x="598" y="613" font-size="11.5" font-weight="700" fill="#0B5C55">RAGAS metrics</text>
+  <text x="598" y="630" font-size="10" fill="#5B6B7C">faithfulness · answer relevancy</text>
+  <text x="598" y="644" font-size="10" fill="#5B6B7C">context precision · context recall</text>
+  <text x="598" y="656" font-size="9" fill="#8B98A5">judge gpt-4o-mini, max_tokens 4096 (avoids NaN)</text>
+
+  <rect x="580" y="668" width="290" height="56" rx="7" fill="#FDF7EE" stroke="#B45309" stroke-width="1.4"/>
+  <text x="598" y="689" font-size="11.5" font-weight="700" fill="#92400E">SQL result matching</text>
+  <text x="598" y="706" font-size="10" fill="#5B6B7C">numeric answers: 5 % tolerance</text>
+  <text x="598" y="719" font-size="10" fill="#5B6B7C">string answers: exact after strip</text>
+
+  <path d="M 870 626 L 890 626 L 890 658 L 906 658" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <path d="M 870 696 L 890 696 L 890 658" stroke="#64748B" stroke-width="1.6" fill="none"/>
+
+  <rect x="910" y="592" width="130" height="132" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="926" y="618" font-size="10.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">eval_report</text>
+  <text x="926" y="634" font-size="10.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">_&lt;ts&gt;.json</text>
+  <text x="926" y="660" font-size="10" fill="#5B6B7C">per-metric</text>
+  <text x="926" y="675" font-size="10" fill="#5B6B7C">scores plus</text>
+  <text x="926" y="690" font-size="10" fill="#5B6B7C">per-sample rows</text>
+  <text x="926" y="712" font-size="9.5" fill="#8B98A5">one file per run</text>
+
+  <path d="M 1040 658 L 1056 658" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="1060" y="592" width="140" height="132" rx="7" fill="#FFFFFF" stroke="#1E2B3A" stroke-width="1.5"/>
+  <text x="1076" y="618" font-size="11.5" font-weight="700" fill="#1E2B3A">Streamlit</text>
+  <text x="1076" y="636" font-size="11.5" font-weight="700" fill="#1E2B3A">Dashboard</text>
+  <text x="1076" y="662" font-size="10" fill="#5B6B7C">Evaluation tab</text>
+  <text x="1076" y="678" font-size="10" fill="#5B6B7C">reads the latest</text>
+  <text x="1076" y="693" font-size="10" fill="#5B6B7C">report on disk</text>
+  <text x="1076" y="714" font-size="9.5" fill="#8B98A5">no rerun needed</text>
+
+  <!-- ===== legend ===== -->
+  <path d="M 40 780 L 1200 780" stroke="#E2E8EE"/>
+  <rect x="60" y="794" width="14" height="14" rx="3" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="82" y="805" font-size="10" fill="#7A8A9A">external source</text>
+  <rect x="200" y="794" width="14" height="14" rx="3" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="222" y="805" font-size="10" fill="#7A8A9A">build script</text>
+  <rect x="330" y="794" width="14" height="14" rx="3" fill="#F6F3FF" stroke="#7C3AED"/>
+  <text x="352" y="805" font-size="10" fill="#7A8A9A">persistent store the agent reads</text>
+  <text x="1200" y="805" font-size="9.5" fill="#B6C2CD" text-anchor="end">Row 1 is the only path that calls an embedding model; rows 2 and 3 are plain relational loads.</text>
+</svg>

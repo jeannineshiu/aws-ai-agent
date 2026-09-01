@@ -8,39 +8,36 @@ Built to demonstrate how LangChain primitives compose into a real, decision-maki
 
 ## Architecture
 
-```
-User Question
-      │
-      ▼
-┌─────────────┐
-│ QueryRouter │  gpt-4o-mini classifies intent → rag / sql / both
-└──────┬──────┘
-       │
-   ┌───┴────────────────────┐
-   │                        │
-   ▼                        ▼
-┌────────────┐     ┌────────────────┐
-│ RAGPipeline│     │  SQLPipeline   │
-│            │     │                │
-│ Chroma DB  │     │  SQLite DB     │
-│ (156 chunks│     │  283 GitHub    │
-│  AWS docs) │     │  issues +      │
-│            │     │  15,462 SO     │
-│ OpenAI     │     │  questions     │
-│ Embeddings │     │                │
-│ gpt-4o-mini│     │  gpt-4o-mini   │
-└─────┬──────┘     └───────┬────────┘
-      │                    │
-      └─────────┬──────────┘
-                ▼
-         Combined Answer
-         + Citations / SQL / Data Table
-```
+<p align="center">
+  <img src="assets/architecture.svg" alt="System architecture — interface, orchestration, execution pipelines and backing services" width="100%">
+</p>
+
+The system is a **router-first agent**: a single chat entry point, one LLM classification step, and two
+purpose-built execution pipelines that never share a code path. Layers 2–4 run inside one Python process;
+the only network dependency at query time is the OpenAI API.
 
 **Data sources:**
 - AWS documentation (SageMaker, Bedrock, Rekognition, Comprehend, Lambda) — scraped and chunked
 - GitHub Issues from `autogluon/autogluon`, `aws-neuron/aws-neuron-sdk`, `aws/sagemaker-python-sdk`, `aws/amazon-sagemaker-examples`
 - 15,462 Stack Overflow questions tagged with AWS AI/ML services
+
+### Query lifecycle
+
+How a single question travels through the system — including the two guardrails that return an answer
+without ever reaching a second model call.
+
+<p align="center">
+  <img src="assets/query-flow.svg" alt="Query lifecycle — routing decision, RAG and SQL execution paths, guardrail early returns, uniform response envelope" width="100%">
+</p>
+
+### Data pipeline
+
+Everything below is built **once, offline**. No ingestion, chunking or embedding happens at query time —
+the agent only reads the two stores on the right.
+
+<p align="center">
+  <img src="assets/data-pipeline.svg" alt="Data pipeline — source, extract, transform, index and store stages, plus the offline evaluation loop" width="100%">
+</p>
 
 ---
 
@@ -142,6 +139,9 @@ aws-ai-agent/
 ├── tests/
 │   └── test_pipelines.py     # Unit tests (no API calls)
 ├── assets/
+│   ├── architecture.svg      # System architecture diagram
+│   ├── query-flow.svg        # Runtime query lifecycle diagram
+│   ├── data-pipeline.svg     # Offline ingestion + evaluation diagram
 │   ├── screenshot_chat.png
 │   └── screenshot_eval.png
 ├── data/

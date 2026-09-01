@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1040" viewBox="0 0 1180 1040" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748B"/>
+    </marker>
+    <marker id="aErr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#DC2626"/>
+    </marker>
+    <marker id="aDash" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4F46E5"/>
+    </marker>
+  </defs>
+
+  <rect width="1180" height="1040" fill="#FFFFFF"/>
+
+  <text x="40" y="44" font-size="19" font-weight="700" fill="#0F1B2A">Query Lifecycle — from question to rendered answer</text>
+  <text x="40" y="66" font-size="11.5" fill="#7A8A9A">One routing decision, two independent execution paths, and two deterministic exits that never reach the LLM.</text>
+
+  <!-- ===== cost panel ===== -->
+  <rect x="830" y="96" width="310" height="196" rx="9" fill="#F8FAFC" stroke="#E2E8EE"/>
+  <text x="850" y="122" font-size="11.5" font-weight="700" fill="#475569">Model calls after routing</text>
+  <path d="M 850 134 L 1120 134" stroke="#E2E8EE"/>
+  <text x="850" y="156" font-size="11" font-weight="700" fill="#0F766E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">rag</text>
+  <text x="920" y="156" font-size="10.5" fill="#5B6B7C">1 embedding + 1 chat completion</text>
+  <text x="850" y="182" font-size="11" font-weight="700" fill="#B45309" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">sql</text>
+  <text x="920" y="182" font-size="10.5" fill="#5B6B7C">2 chat completions</text>
+  <text x="850" y="208" font-size="11" font-weight="700" fill="#4F46E5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">both</text>
+  <text x="920" y="208" font-size="10.5" fill="#5B6B7C">1 embedding + 3 chat completions</text>
+  <path d="M 850 224 L 1120 224" stroke="#E2E8EE"/>
+  <text x="850" y="246" font-size="10.5" fill="#8B98A5">Every request adds 1 router call (~10 tokens).</text>
+  <text x="850" y="264" font-size="10.5" fill="#8B98A5">Per-call timeouts: 30 s embeddings, 60 s chat —</text>
+  <text x="850" y="280" font-size="10.5" fill="#8B98A5">never a single global budget for the whole route.</text>
+
+  <!-- ===== entry ===== -->
+  <rect x="410" y="96" width="360" height="44" rx="22" fill="#1E2B3A"/>
+  <text x="590" y="123" font-size="12.5" font-weight="600" fill="#FFFFFF" text-anchor="middle">User question — Streamlit chat or CLI</text>
+
+  <path d="M 590 140 L 590 158" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="430" y="164" width="320" height="48" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="590" y="185" font-size="12" font-weight="600" fill="#1E2B3A" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">AWSAgent.run(question)</text>
+  <text x="590" y="201" font-size="10" fill="#8B98A5" text-anchor="middle">cached singleton — router and both pipelines already warm</text>
+
+  <path d="M 590 212 L 590 230" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="410" y="236" width="360" height="56" rx="7" fill="#EEF2FF" stroke="#4F46E5" stroke-width="1.6"/>
+  <text x="590" y="259" font-size="12.5" font-weight="700" fill="#3730A3" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">QueryRouter.route(question)</text>
+  <text x="590" y="277" font-size="10" fill="#6D6DA8" text-anchor="middle">gpt-4o-mini returns a single word · anything unexpected falls back to rag</text>
+
+  <path d="M 590 292 L 590 310" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <!-- decision -->
+  <path d="M 590 314 L 654 348 L 590 382 L 526 348 Z" fill="#FFFFFF" stroke="#4F46E5" stroke-width="1.6"/>
+  <text x="590" y="352" font-size="11.5" font-weight="700" fill="#3730A3" text-anchor="middle">route ?</text>
+
+  <path d="M 526 348 L 250 348 L 250 424" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <path d="M 654 348 L 930 348 L 930 424" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <path d="M 590 382 L 590 424" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <text x="392" y="341" font-size="11" font-weight="700" fill="#0F766E" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">rag</text>
+  <text x="792" y="341" font-size="11" font-weight="700" fill="#B45309" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">sql</text>
+  <text x="602" y="406" font-size="11" font-weight="700" fill="#4F46E5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">both</text>
+
+  <!-- ===== column headers ===== -->
+  <rect x="90" y="430" width="320" height="34" rx="6" fill="#0F766E"/>
+  <text x="106" y="452" font-size="11.5" font-weight="700" fill="#FFFFFF" letter-spacing="0.6">RAG PATH — documentation</text>
+  <rect x="470" y="430" width="240" height="34" rx="6" fill="#4F46E5"/>
+  <text x="486" y="452" font-size="11.5" font-weight="700" fill="#FFFFFF" letter-spacing="0.6">BOTH — run in sequence</text>
+  <rect x="770" y="430" width="320" height="34" rx="6" fill="#B45309"/>
+  <text x="786" y="452" font-size="11.5" font-weight="700" fill="#FFFFFF" letter-spacing="0.6">SQL PATH — structured data</text>
+
+  <!-- ===== RAG column ===== -->
+  <rect x="90" y="482" width="320" height="52" rx="7" fill="#F0FAF8" stroke="#BFE0DA"/>
+  <text x="110" y="504" font-size="11.5" font-weight="600" fill="#0B5C55" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">retrieve(query)</text>
+  <text x="110" y="521" font-size="10" fill="#5B6B7C">embed the question, take the 4 nearest chunks</text>
+
+  <path d="M 250 534 L 250 544" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="90" y="550" width="320" height="52" rx="7" fill="#F0FAF8" stroke="#BFE0DA"/>
+  <text x="110" y="572" font-size="11.5" font-weight="600" fill="#0B5C55" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">format_context(docs)</text>
+  <text x="110" y="589" font-size="10" fill="#5B6B7C">stitch title, service and URL onto every chunk</text>
+
+  <path d="M 250 602 L 250 612" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="90" y="618" width="320" height="52" rx="7" fill="#F0FAF8" stroke="#BFE0DA"/>
+  <text x="110" y="640" font-size="11.5" font-weight="600" fill="#0B5C55" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">llm.invoke(RAG_PROMPT)</text>
+  <text x="110" y="657" font-size="10" fill="#5B6B7C">answer only from context, otherwise say so</text>
+
+  <path d="M 250 670 L 250 680" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="90" y="686" width="320" height="52" rx="7" fill="#0F766E"/>
+  <text x="110" y="708" font-size="11.5" font-weight="700" fill="#FFFFFF">answer + citations[4]</text>
+  <text x="110" y="725" font-size="10" fill="#A7D8D0">title · service · source URL per chunk</text>
+
+  <!-- ===== BOTH column ===== -->
+  <rect x="470" y="478" width="240" height="76" rx="7" fill="#F5F6FF" stroke="#C7CCFA"/>
+  <text x="490" y="500" font-size="11" fill="#3730A3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">1 · rag.run(question)</text>
+  <text x="490" y="520" font-size="11" fill="#3730A3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">2 · sql.run(question)</text>
+  <text x="490" y="542" font-size="10" fill="#7A7AB8">sequential, then concatenated</text>
+
+  <path d="M 470 508 L 416 508" stroke="#4F46E5" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#aDash)"/>
+  <path d="M 710 508 L 764 508" stroke="#4F46E5" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#aDash)"/>
+
+  <!-- ===== SQL column ===== -->
+  <rect x="770" y="482" width="320" height="52" rx="7" fill="#FDF7EE" stroke="#EEDCC2"/>
+  <text x="790" y="504" font-size="11.5" font-weight="600" fill="#92400E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">generate_sql(question)</text>
+  <text x="790" y="521" font-size="10" fill="#5B6B7C">schema in the prompt · markdown fences stripped</text>
+
+  <path d="M 930 534 L 930 544" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="770" y="550" width="320" height="52" rx="7" fill="#FFF7ED" stroke="#EA580C" stroke-width="1.6"/>
+  <text x="790" y="572" font-size="11.5" font-weight="700" fill="#9A3412" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">validate_sql(sql)</text>
+  <text x="790" y="589" font-size="10" fill="#5B6B7C">SELECT-only · word-boundary keyword regex</text>
+  <rect x="1004" y="556" width="76" height="17" rx="8.5" fill="#FDEBD9"/>
+  <text x="1042" y="568" font-size="8.5" font-weight="700" fill="#9A3412" text-anchor="middle" letter-spacing="0.6">GUARDRAIL</text>
+
+  <path d="M 930 602 L 930 612" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="770" y="618" width="320" height="52" rx="7" fill="#FFF7ED" stroke="#EA580C" stroke-width="1.6"/>
+  <text x="790" y="640" font-size="11.5" font-weight="700" fill="#9A3412" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">execute_sql(sql)</text>
+  <text x="790" y="657" font-size="10" fill="#5B6B7C">pandas.read_sql inside try / except</text>
+  <rect x="1004" y="624" width="76" height="17" rx="8.5" fill="#FDEBD9"/>
+  <text x="1042" y="636" font-size="8.5" font-weight="700" fill="#9A3412" text-anchor="middle" letter-spacing="0.6">GUARDRAIL</text>
+
+  <path d="M 930 670 L 930 680" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="770" y="686" width="320" height="52" rx="7" fill="#FDF7EE" stroke="#EEDCC2"/>
+  <text x="790" y="708" font-size="11.5" font-weight="600" fill="#92400E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">explain_results(question, df)</text>
+  <text x="790" y="725" font-size="10" fill="#5B6B7C">drop body · head(20) · cap 4 000 chars · then LLM</text>
+
+  <path d="M 930 738 L 930 748" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="770" y="754" width="320" height="52" rx="7" fill="#B45309"/>
+  <text x="790" y="776" font-size="11.5" font-weight="700" fill="#FFFFFF">answer + sql + DataFrame</text>
+  <text x="790" y="793" font-size="10" fill="#F3D6B0">query text and rows both surfaced to the user</text>
+
+  <!-- ===== early return ===== -->
+  <rect x="440" y="690" width="310" height="80" rx="7" fill="#FEF2F2" stroke="#DC2626" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="460" y="714" font-size="11.5" font-weight="700" fill="#991B1B">Early return — no further model calls</text>
+  <text x="460" y="734" font-size="10" fill="#B14A4A">rejected → "Could not execute query: {reason}"</text>
+  <text x="460" y="750" font-size="10" fill="#B14A4A">raised → "SQL execution failed: {e}"</text>
+  <text x="460" y="764" font-size="9.5" fill="#C98080">data stays None, so the UI renders no table</text>
+
+  <path d="M 770 576 L 760 576 L 760 706 L 754 706" stroke="#DC2626" stroke-width="1.4" fill="none" marker-end="url(#aErr)"/>
+  <path d="M 770 644 L 766 644 L 766 740 L 754 740" stroke="#DC2626" stroke-width="1.4" fill="none" marker-end="url(#aErr)"/>
+  <text x="750" y="568" font-size="9.5" font-weight="600" fill="#DC2626" text-anchor="end">invalid</text>
+  <text x="750" y="636" font-size="9.5" font-weight="600" fill="#DC2626" text-anchor="end">exception</text>
+
+  <!-- ===== collector ===== -->
+  <path d="M 250 738 L 250 846" stroke="#64748B" stroke-width="1.6" fill="none"/>
+  <path d="M 930 806 L 930 846" stroke="#64748B" stroke-width="1.6" fill="none"/>
+  <path d="M 520 770 L 520 846" stroke="#DC2626" stroke-width="1.4" stroke-dasharray="5 4" fill="none"/>
+  <path d="M 250 846 L 930 846" stroke="#64748B" stroke-width="1.6" fill="none"/>
+  <path d="M 590 846 L 590 866" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+
+  <rect x="310" y="872" width="560" height="92" rx="8" fill="#FFFFFF" stroke="#1E2B3A" stroke-width="1.6"/>
+  <text x="330" y="898" font-size="12.5" font-weight="700" fill="#1E2B3A">Uniform response envelope</text>
+  <text x="330" y="920" font-size="10.5" fill="#3B4C5F" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">{ question, route, answer, citations[], data: DataFrame|None, sql: str|None }</text>
+  <text x="330" y="942" font-size="10.5" fill="#7A8A9A">Every route returns the same shape — the UI branches on which fields are populated.</text>
+  <text x="330" y="957" font-size="10.5" fill="#7A8A9A">Streamlit renders: answer markdown · citation list · st.code(sql) · st.dataframe(data)</text>
+
+  <!-- ===== legend ===== -->
+  <path d="M 40 990 L 1140 990" stroke="#E2E8EE"/>
+  <path d="M 60 1012 L 92 1012" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="100" y="1016" font-size="10" fill="#7A8A9A">control flow</text>
+  <path d="M 200 1012 L 232 1012" stroke="#4F46E5" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#aDash)"/>
+  <text x="240" y="1016" font-size="10" fill="#7A8A9A">reuses the neighbouring path</text>
+  <path d="M 420 1012 L 452 1012" stroke="#DC2626" stroke-width="1.4" marker-end="url(#aErr)"/>
+  <text x="460" y="1016" font-size="10" fill="#7A8A9A">failure path</text>
+  <rect x="570" y="1005" width="14" height="14" rx="3" fill="#FFF7ED" stroke="#EA580C"/>
+  <text x="592" y="1016" font-size="10" fill="#7A8A9A">deterministic guardrail (no LLM involved)</text>
+  <path d="M 880 1005 L 906 1019 L 880 1033 L 854 1019 Z" fill="#FFFFFF" stroke="#4F46E5" stroke-width="1.4" transform="translate(0,-14) scale(1)"/>
+  <text x="916" y="1016" font-size="10" fill="#7A8A9A">decision point</text>
+</svg>
