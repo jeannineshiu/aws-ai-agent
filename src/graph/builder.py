@@ -56,7 +56,8 @@ def build_graph(supervisor, rag_pipeline, sql_pipeline, synthesizer,
                 max_passes: int = MAX_PASSES,
                 max_rag_attempts: int = MAX_RAG_ATTEMPTS,
                 max_sql_attempts: int = MAX_SQL_ATTEMPTS,
-                max_revisions: int = MAX_REVISIONS):
+                max_revisions: int = MAX_REVISIONS,
+                confirm_sql: bool = False):
     """Compile the graph from injected collaborators.
 
     Everything is a parameter so tests can pass fakes and exercise dispatch,
@@ -68,7 +69,7 @@ def build_graph(supervisor, rag_pipeline, sql_pipeline, synthesizer,
 
     g.add_node("supervisor", make_supervisor_node(supervisor, max_passes))
     g.add_node("rag", make_rag_node(rag_pipeline, grader, max_rag_attempts))
-    g.add_node("sql", make_sql_node(sql_pipeline, repairer, max_sql_attempts))
+    g.add_node("sql", make_sql_node(sql_pipeline, repairer, max_sql_attempts, confirm_sql))
     g.add_node("synthesize", make_synthesize_node(synthesizer))
     g.add_node("critic", make_critic_node(critic, max_revisions))
     g.add_node("remember", make_remember_node())
@@ -116,7 +117,8 @@ class GraphAgent:
     # questions that must not see each other.
     def __init__(self, supervisor=None, rag_pipeline=None, sql_pipeline=None,
                  synthesizer=None, grader=None, repairer=None, critic=None,
-                 checkpointer=None, loops="repair", memory=False, **budgets):
+                 checkpointer=None, loops="repair", memory=False,
+                 confirm_sql=False, **budgets):
         # Imported lazily so tests can build a graph from fakes without touching
         # Chroma, SQLite or the OpenAI client.
         if None in (supervisor, rag_pipeline, sql_pipeline, synthesizer):
@@ -142,13 +144,18 @@ class GraphAgent:
                 grader = grader or RetrievalGrader()
                 critic = critic or Critic()
 
-        if checkpointer is None and memory:
+        if checkpointer is None and (memory or confirm_sql):
+            # A pause has to be stored somewhere to be resumed from, so asking
+            # for confirmation asks for a checkpointer whether or not the
+            # caller wanted multi-turn as well.
             from langgraph.checkpoint.memory import MemorySaver
             checkpointer = MemorySaver()
         self.memory = checkpointer is not None
+        self.confirm_sql = confirm_sql
 
         self.graph = build_graph(supervisor, rag_pipeline, sql_pipeline, synthesizer,
-                                 grader, repairer, critic, checkpointer, **budgets)
+                                 grader, repairer, critic, checkpointer,
+                                 confirm_sql=confirm_sql, **budgets)
 
     # ── one turn ──────────────────────────────────────────────────────────────
 
@@ -175,6 +182,7 @@ class GraphAgent:
             "plan": [], "awaiting": [], "agent_query": "", "mode": "parallel",
             "rag_attempts": 0, "rag_query": None, "rag_missing": "",
             "sql_attempts": 0, "sql_error": None, "last_sql": None,
+            "pending_sql": None, "confirm_reason": "", "sql_declined": False,
             "route": "", "answer": "", "citations": [], "data": None, "sql": None,
         }
 
@@ -195,6 +203,21 @@ class GraphAgent:
         instead.
         """
         for chunk in self.graph.stream(self._turn_input(question),
+                                       self._config(config, thread_id),
+                                       stream_mode="updates"):
+            for node, update in chunk.items():
+                yield node, update
+
+    def resume_turn(self, decision, config: dict | None = None,
+                    thread_id: str | None = None):
+        """Continue a turn that stopped at the confirmation gate.
+
+        `decision` is what `interrupt()` returns inside the node - truthy to run
+        the query it parked, falsy to answer without it.
+        """
+        from langgraph.types import Command
+
+        for chunk in self.graph.stream(Command(resume=decision),
                                        self._config(config, thread_id),
                                        stream_mode="updates"):
             for node, update in chunk.items():
@@ -226,6 +249,15 @@ class GraphAgent:
         state["trajectory"] = trajectory
         state["elapsed"] = time.perf_counter() - t0
         return state
+
+    def pending_confirmation(self, thread_id: str) -> dict | None:
+        """The query a turn stopped on, or None if it did not stop.
+
+        What `interrupt()` was called with: the SQL, the question it was
+        written for, and why it is being held.
+        """
+        interrupts = self.graph.get_state(self._config(None, thread_id)).interrupts
+        return dict(interrupts[0].value) if interrupts else None
 
     def state_of(self, thread_id: str) -> dict:
         """The stored state of a thread — what a streamed turn left behind.

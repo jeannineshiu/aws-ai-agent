@@ -21,6 +21,7 @@ from src.graph.grader import Grade
 from src.graph.narrate import describe
 from src.graph.supervisor import ContextualPlan, Plan
 from src.router.router import RouteType
+from src.sql.validate import Review
 
 
 # ── fakes ─────────────────────────────────────────────────────────────────────
@@ -788,3 +789,104 @@ def test_streaming_a_turn_leaves_the_same_answer_behind():
         pass
     invoked, *_ = make_memory_graph(["rag", "sql"])
     assert project("q", streamed.state_of("t1")) == invoked.run("q", thread_id="t2")
+
+
+# ── the confirmation gate ─────────────────────────────────────────────────────
+
+class ReviewingSQL(FakeSQL):
+    """A fake with the three-way reviewer the real pipeline has."""
+
+    def __init__(self, verdicts, outcomes=None):
+        super().__init__(outcomes)
+        self.verdicts = list(verdicts)          # one per review_sql call, last repeats
+
+    def review_sql(self, sql):
+        i = min(len(self.generated) - 1, len(self.verdicts) - 1)
+        return Review(self.verdicts[i], f"reason for {self.verdicts[i]}")
+
+    def validate_sql(self, sql):
+        v = self.review_sql(sql)
+        return v.verdict == "allow", v.reason
+
+
+def gated(verdicts=("confirm",), outcomes=None, **kw):
+    sql = ReviewingSQL(verdicts, outcomes)
+    agent = GraphAgent(FakeSupervisor(["sql"]), FakeRAG(), sql, FakeSynthesizer(),
+                       loops=False, confirm_sql=True, **kw)
+    return agent, sql
+
+
+def drain(events):
+    return [(node, update) for node, update in events]
+
+
+def test_an_unclassifiable_query_stops_before_it_runs():
+    agent, sql = gated(["confirm"])
+    drain(agent.stream_turn("q", thread_id="t1"))
+    assert sql.executed == [], "the database was touched before anyone was asked"
+    assert agent.graph.get_state({"configurable": {"thread_id": "t1"}}).interrupts
+
+
+def test_approving_runs_the_query_that_was_shown():
+    agent, sql = gated(["confirm"])
+    drain(agent.stream_turn("q", thread_id="t1"))
+    shown = agent.graph.get_state(
+        {"configurable": {"thread_id": "t1"}}).interrupts[0].value["sql"]
+    drain(agent.resume_turn(True, thread_id="t1"))
+    assert sql.executed == [shown]
+
+
+def test_pausing_does_not_regenerate_the_query():
+    """`interrupt()` replays its node from the top. If generation happened
+    before the pause, resuming would write a second query and approve the
+    first."""
+    agent, sql = gated(["confirm"])
+    drain(agent.stream_turn("q", thread_id="t1"))
+    drain(agent.resume_turn(True, thread_id="t1"))
+    assert len(sql.generated) == 1, sql.generated
+
+
+def test_declining_answers_without_the_query():
+    agent, sql = gated(["confirm"])
+    drain(agent.stream_turn("q", thread_id="t1"))
+    drain(agent.resume_turn(False, thread_id="t1"))
+    final = agent.state_of("t1")
+    assert sql.executed == []
+    assert final["sql_declined"] is True
+    assert "not run" in final["answer"]
+
+
+def test_a_rejected_query_is_not_put_to_a_human():
+    """Approving a query the reviewer refuses is not a decision anyone should
+    be offered, and the repair loop can still have another go."""
+    agent, sql = gated(["reject"], repairer=FakeRepairer())
+    drain(agent.stream_turn("q", thread_id="t1"))
+    assert not agent.graph.get_state({"configurable": {"thread_id": "t1"}}).interrupts
+    assert sql.executed == []
+
+
+def test_an_ordinary_query_is_not_gated():
+    """A blanket confirmation on a read-only database is friction that teaches
+    people to click through it."""
+    agent, sql = gated(["allow"])
+    drain(agent.stream_turn("q", thread_id="t1"))
+    assert sql.executed and not agent.graph.get_state(
+        {"configurable": {"thread_id": "t1"}}).interrupts
+
+
+def test_a_repaired_query_is_gated_even_when_it_reads_fine():
+    """The repairer rewrites the question's query after it came back empty, and
+    the widened filter that turns a zero into a number is exactly what a person
+    catches in one look."""
+    agent, sql = gated(["allow"], outcomes=[[], [1]], repairer=FakeRepairer())
+    drain(agent.stream_turn("q", thread_id="t1"))
+    assert len(sql.executed) == 1, "the first attempt runs unasked; the repair does not"
+    interrupts = agent.graph.get_state({"configurable": {"thread_id": "t1"}}).interrupts
+    assert "rewrite" in interrupts[0].value["reason"]
+
+
+def test_the_gate_is_off_by_default():
+    """The evaluation harness has nobody to ask, and would hang on the first
+    query it could not classify."""
+    agent, *_ = make_graph(["sql"])
+    assert agent.confirm_sql is False

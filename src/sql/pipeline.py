@@ -6,6 +6,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
 
+from src.sql.validate import Review, review
+
 load_dotenv()
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -93,23 +95,28 @@ class SQLPipeline:
                 sql = sql[3:]
         return sql.strip()
 
+    def review_sql(self, sql: str) -> Review:
+        """Classify the query allow / confirm / reject. See src/sql/validate.py.
+
+        The word-boundary scan this delegates to used to live here and read the
+        raw query, so `LIKE '%delete endpoint%'` was a forbidden keyword and
+        `WITH ... SELECT` was not a SELECT. Both are questions this app exists
+        to answer.
+        """
+        return review(sql)
+
     def validate_sql(self, sql: str) -> tuple[bool, str]:
-        """Basic safety check — only allow SELECT statements."""
-        import re
-        sql_upper = sql.upper().strip()
+        """The binary form: may this query run with nobody available to ask?
 
-        # Check for forbidden keywords as whole words only
-        # This prevents false positives like 'created_at' matching 'CREATE'
-        forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER"]
-        for keyword in forbidden:
-            pattern = rf"\b{keyword}\b"
-            if re.search(pattern, sql_upper):
-                return False, f"Forbidden keyword: {keyword}"
-
-        if not sql_upper.startswith("SELECT"):
-            return False, "Only SELECT statements are allowed"
-
-        return True, "OK"
+        Only `allow` survives the collapse. A middle tier is a question, and a
+        caller that cannot put the question to anyone - v1, or the graph with
+        confirmation off - has to answer it the safe way itself. The graph
+        lifts this for a query a human has just approved, and only from
+        `confirm`; a rejection is never a question.
+        """
+        verdict = review(sql)
+        return verdict.verdict == "allow", ("OK" if verdict.verdict == "allow"
+                                            else verdict.reason)
 
     def execute_sql(self, sql: str) -> pd.DataFrame:
         """Execute SQL and return results as DataFrame."""

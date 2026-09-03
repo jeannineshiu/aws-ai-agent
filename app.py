@@ -18,6 +18,7 @@ st.set_page_config(
 # 60% -> 100%), and it is the only one of the two that can hold a conversation.
 # Set AGENT_IMPL=v1 to get the linear pipeline back for comparison.
 AGENT_IMPL = os.getenv("AGENT_IMPL", "graph").lower()
+CONFIRM_SQL = os.getenv("CONFIRM_SQL", "1") not in ("0", "false", "no")
 
 
 # Initialize agent (cached so it only loads once)
@@ -27,7 +28,10 @@ def load_agent(impl: str):
         from src.graph.builder import GraphAgent
         # memory=True compiles a checkpointer, which is what makes a follow-up
         # question a follow-up rather than a fresh one.
-        return GraphAgent(memory=True)
+        # confirm_sql stops a query the reviewer cannot classify, or one the
+        # repairer wrote rather than the question, and puts it to the person
+        # sitting here. The app is the only place with someone to ask.
+        return GraphAgent(memory=True, confirm_sql=CONFIRM_SQL)
     return AWSAgent()
 
 agent = load_agent(AGENT_IMPL)
@@ -77,7 +81,8 @@ with st.sidebar:
         # the thread would leave the agent resolving "it" against turns the
         # user can no longer see.
         st.session_state.messages = []
-        st.session_state.pop("thread_id", None)
+        for key in ("thread_id", "awaiting_sql", "resume_with"):
+            st.session_state.pop(key, None)
         st.rerun()
 
     st.caption("Built with LangGraph · ChromaDB · OpenAI · SQLite")
@@ -127,31 +132,71 @@ with tab_chat:
     if user_input:
         st.session_state.pending_question = user_input
 
-    if "pending_question" in st.session_state:
-        question = st.session_state.pop("pending_question")
+    # A turn parked at the confirmation gate, rendered on its own rerun: a
+    # button click is only visible to the script run after the one that drew it.
+    if "awaiting_sql" in st.session_state and "resume_with" not in st.session_state:
+        held = st.session_state.awaiting_sql
+        with st.chat_message("assistant"):
+            st.warning(f"Before I run this — {held['payload']['reason']}.")
+            st.code(held["payload"]["sql"], language="sql")
+            st.caption(f"Written to answer: *{held['payload']['question']}*")
+            run_it, skip_it = st.columns(2)
+            if run_it.button("Run it", type="primary", width="stretch"):
+                st.session_state.resume_with = True
+                st.rerun()
+            if skip_it.button("Answer without it", width="stretch"):
+                st.session_state.resume_with = False
+                st.rerun()
+        st.stop()
 
-        with st.chat_message("user"):
-            st.markdown(question)
-        st.session_state.messages.append({"role": "user", "content": question})
+    if "pending_question" in st.session_state or "resume_with" in st.session_state:
+        resuming = "resume_with" in st.session_state
+
+        if resuming:
+            held = st.session_state.pop("awaiting_sql")
+            question, steps = held["question"], list(held["steps"])
+            decision = st.session_state.pop("resume_with")
+            steps.append("Ran the held query" if decision
+                         else "Skipped the held query")
+            events = agent.resume_turn(decision, thread_id=st.session_state.thread_id)
+        else:
+            question, steps = st.session_state.pop("pending_question"), []
+            with st.chat_message("user"):
+                st.markdown(question)
+            st.session_state.messages.append({"role": "user", "content": question})
+            events = None
 
         with st.chat_message("assistant"):
-            steps = []
             try:
                 if IS_GRAPH:
                     thread_id = st.session_state.thread_id
-                    # Narrate the turn as it happens. The interesting decisions
-                    # - who was dispatched, what was retried, what was sent back
-                    # to be redrafted - are all over before the answer exists,
-                    # and a spinner shows none of them.
+                    if events is None:
+                        # Narrate the turn as it happens. The interesting
+                        # decisions - who was dispatched, what was retried, what
+                        # was sent back to be redrafted - are all over before the
+                        # answer exists, and a spinner shows none of them.
+                        events = agent.stream_turn(question, thread_id=thread_id)
+
                     with st.status("Working…", expanded=True) as status:
-                        for node, update in agent.stream_turn(question,
-                                                              thread_id=thread_id):
+                        for line in steps:
+                            st.markdown(f"- {line}")
+                        for node, update in events:
                             line = describe(node, update, question)
                             if line:
                                 steps.append(line)
                                 st.markdown(f"- {line}")
+
+                        held = agent.pending_confirmation(thread_id)
+                        if held:
+                            status.update(label="Waiting for you",
+                                          state="complete", expanded=False)
+                            st.session_state.awaiting_sql = {
+                                "question": question, "payload": held, "steps": steps}
+                            st.rerun()
+
                         status.update(label=f"Answered in {len(steps)} steps",
                                       state="complete", expanded=False)
+
                     # The turn was streamed for the display above; the answer
                     # itself comes from the checkpointer, already assembled.
                     result = project(question, agent.state_of(thread_id))

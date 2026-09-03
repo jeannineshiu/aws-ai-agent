@@ -17,7 +17,7 @@ outer one.
 from typing import Literal
 
 from langgraph.graph import END
-from langgraph.types import Command
+from langgraph.types import Command, interrupt
 
 from src.graph.repair import looks_empty
 from src.graph.state import AgentState, Finding
@@ -180,26 +180,110 @@ def after_rag(state: AgentState) -> Literal["rag", "supervisor"]:
 
 # ── SQL specialist, with repair ───────────────────────────────────────────────
 
-def make_sql_node(sql_pipeline, repairer=None, max_attempts: int = MAX_SQL_ATTEMPTS):
+def _permitted(sql_pipeline, sql: str, approved: bool) -> tuple[bool, str]:
+    """May this query reach the database?
+
+    `approved` means a human has just said yes, which lifts the reviewer's
+    middle tier and nothing else. An approval is an answer to a question the
+    code could not decide; a rejection was never a question.
+    """
+    review = getattr(sql_pipeline, "review_sql", None)
+    if review is None:
+        return sql_pipeline.validate_sql(sql)     # a pipeline without the tiers
+
+    verdict = review(sql)
+    if verdict.verdict == "allow":
+        return True, "OK"
+    if verdict.verdict == "confirm" and approved:
+        return True, verdict.reason
+    return False, verdict.reason
+
+
+def _confirmation_reason(sql_pipeline, sql: str, attempts: int) -> str | None:
+    """Why a human should see this query before it runs, or None.
+
+    Two cases, and neither is "all SQL is dangerous" - the database is a
+    read-only local file and a blanket confirmation on every query would be
+    friction that teaches people to click through it.
+
+    The first is the reviewer's middle tier: the query is not clearly a read and
+    not clearly a write, and code that cannot classify it should not decide it.
+
+    The second is a repair. The repairer rewrote the query after the first one
+    failed, and its prompt has to be told not to widen a filter just to turn a
+    zero into a number. That is exactly the mistake a person spots in one look
+    at the SQL, and until now it ran without anyone seeing it.
+    """
+    review = getattr(sql_pipeline, "review_sql", None)
+    if review is not None:
+        verdict = review(sql)
+        if verdict.verdict == "reject":
+            # Not a question for a human. Fail it now and let the repair loop
+            # try again rather than asking someone to approve a dead query.
+            return None
+        if verdict.verdict == "confirm":
+            return verdict.reason
+    if attempts > 0:
+        return "it is a rewrite of a query that came back empty, not the one your question produced"
+    return None
+
+
+def make_sql_node(sql_pipeline, repairer=None, max_attempts: int = MAX_SQL_ATTEMPTS,
+                  confirm: bool = False):
     """Generate, validate, execute — and on failure feed the failure back.
 
     Finding nothing counts as a failure — including a COUNT that comes back as
     a single row containing zero, which is the case this loop was built for and
     which a plain "no rows" check misses entirely.
+
+    With `confirm` on, a query the reviewer cannot classify - or one the
+    repairer wrote rather than the user's question - stops here for a human.
+    The pause takes a second pass through this node on purpose: `interrupt()`
+    replays its node from the top when the answer arrives, so it has to be the
+    first thing that happens, or resuming would re-run the LLM call that
+    produced the query and could approve one query while executing another.
     """
     def sql_node(state: AgentState) -> dict:
         question = _effective_query(state)
         attempts = state.get("sql_attempts", 0)
-        prev_error, prev_sql = state.get("sql_error"), state.get("last_sql")
+        pending = state.get("pending_sql")
 
-        if prev_error and prev_sql and repairer is not None:
-            sql = repairer.repair(question, prev_sql, prev_error,
-                                  conn=getattr(sql_pipeline, "conn", None))
+        if pending:
+            decision = interrupt({
+                "sql": pending,
+                "question": question,
+                "reason": state.get("confirm_reason", ""),
+            })
+            approved = decision.get("approved") if isinstance(decision, dict) else bool(decision)
+            if not approved:
+                finding: Finding = {
+                    "agent": "sql", "query": question, "attempts": attempts + 1,
+                    "answer": "The query needed to answer this was not run.",
+                    "sql": pending, "data": None,
+                    "error": "declined before execution",
+                }
+                return {"findings": [finding], "pending_sql": None,
+                        "confirm_reason": "", "sql_declined": True,
+                        "sql_error": None, "sql_attempts": attempts + 1}
+            sql = pending
         else:
-            sql = sql_pipeline.generate_sql(question)
+            prev_error, prev_sql = state.get("sql_error"), state.get("last_sql")
+
+            if prev_error and prev_sql and repairer is not None:
+                sql = repairer.repair(question, prev_sql, prev_error,
+                                      conn=getattr(sql_pipeline, "conn", None))
+            else:
+                sql = sql_pipeline.generate_sql(question)
+
+            if confirm:
+                reason = _confirmation_reason(sql_pipeline, sql, attempts)
+                if reason:
+                    # Nothing has touched the database yet. Park the query and
+                    # come back into this node to ask.
+                    return {"pending_sql": sql, "confirm_reason": reason}
 
         df, error = None, None
-        ok, reason = sql_pipeline.validate_sql(sql)
+        ok, reason = _permitted(sql_pipeline, sql, approved=bool(pending))
         if not ok:
             error = f"rejected by the validator: {reason}"
         else:
@@ -216,7 +300,8 @@ def make_sql_node(sql_pipeline, repairer=None, max_attempts: int = MAX_SQL_ATTEM
         # question and produce the same query — a wasted attempt, not a repair.
         if error and repairer is not None and attempts + 1 < max_attempts:
             print(f"  -> SQL failed ({error[:56]}); repairing")
-            return {"sql_attempts": attempts + 1, "sql_error": error, "last_sql": sql}
+            return {"sql_attempts": attempts + 1, "sql_error": error,
+                    "last_sql": sql, "pending_sql": None, "confirm_reason": ""}
 
         if df is not None:
             answer = sql_pipeline.explain_results(question, df)
@@ -232,14 +317,16 @@ def make_sql_node(sql_pipeline, repairer=None, max_attempts: int = MAX_SQL_ATTEM
             "data": df,
             "error": error,
         }
-        return {"findings": [finding], "sql_attempts": attempts + 1, "sql_error": None}
+        return {"findings": [finding], "sql_attempts": attempts + 1,
+                "sql_error": None, "pending_sql": None, "confirm_reason": ""}
 
     return sql_node
 
 
 def after_sql(state: AgentState) -> Literal["sql", "supervisor"]:
-    """A retained error means the node asked for a repair attempt."""
-    return "sql" if state.get("sql_error") else "supervisor"
+    """A retained error means the node asked for a repair attempt; a parked
+    query means it asked to come back and put the question to a human."""
+    return "sql" if (state.get("sql_error") or state.get("pending_sql")) else "supervisor"
 
 
 # ── synthesis ─────────────────────────────────────────────────────────────────

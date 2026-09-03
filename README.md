@@ -128,6 +128,7 @@ aws-ai-agent/
 │   ├── router/router.py      # QueryRouter — LLM-based intent classification
 │   ├── rag/pipeline.py       # RAGPipeline — retrieve + generate
 │   ├── sql/pipeline.py       # SQLPipeline — text-to-SQL + execute + explain
+│   ├── sql/validate.py       # allow / confirm / reject for generated SQL
 │   └── graph/                # v2 — LangGraph supervisor multi-agent system
 │       ├── state.py          #   AgentState + accumulating findings channel
 │       ├── supervisor.py     #   Supervisor — structured dispatch + query refinement
@@ -135,7 +136,8 @@ aws-ai-agent/
 │       ├── grader.py         #   RetrievalGrader — relevance check + query rewrite
 │       ├── repair.py         #   SQLRepairer — rewrites failed queries from evidence
 │       ├── critic.py         #   Critic — groundedness gate before the answer ships
-│       ├── nodes.py          #   supervisor / rag / sql / synthesize / critic nodes
+│       ├── narrate.py        #   one streamed node update -> one line for the UI
+│       ├── nodes.py          #   supervisor / rag / sql / synthesize / critic / remember
 │       └── builder.py        #   StateGraph wiring + GraphAgent facade
 ├── scripts/
 │   ├── fetch_aws_docs.py     # Scrape AWS documentation
@@ -206,16 +208,30 @@ The splitter tries each separator in order, falling back to the next only if the
 
 ---
 
-### 3. SQL validation with word-boundary regex
+### 3. Three verdicts for generated SQL, and a human for the middle one
 
-**Decision:** Validate generated SQL with `re.search(r"\bKEYWORD\b", sql_upper)` instead of `keyword in sql_upper`.
+**Decision:** Classify a generated query `allow` / `confirm` / `reject` (`src/sql/validate.py`) after stripping comments and string literals, rather than sweeping the raw text once for six keywords and answering yes or no.
 
-**The concrete bug this prevents:** A plain string check `"CREATE" in sql_upper` blocks any query selecting `created_at` — a real column in the schema. This is a false positive that silently breaks common analytical queries like `SELECT created_at, COUNT(*) FROM issues GROUP BY created_at`.
+**The bugs this fixes, all four measured against the previous check:**
 
-**Why not a full SQL parser?**
-A parser (`sqlglot`, `sqlparse`) would be more robust but adds a dependency for what is fundamentally a lightweight guardrail. Word-boundary regex correctly distinguishes `CREATE TABLE` from `created_at` without AST parsing.
+```
+SELECT COUNT(*) ... WHERE title LIKE '%delete endpoint%'    was rejected
+SELECT repo, COUNT(*) ... WHERE body LIKE '%create model%'  was rejected
+WITH t AS (SELECT ...) SELECT * FROM t                      was rejected
+SELECT * FROM issues LIMIT 50; SELECT * FROM stackoverflow   was allowed
+```
 
-**Scope of the validator:** This is not a security firewall — the system is not public-facing. It is a guardrail against the LLM occasionally generating destructive SQL despite being prompted otherwise.
+The word-boundary regex distinguished `CREATE TABLE` from `created_at`, which was the bug it was written for, but it could not distinguish a keyword from the same letters inside a string literal — and "how do I delete a SageMaker endpoint" is this app's own subject matter. It also had no concept of a statement, so `WITH … SELECT` was not a SELECT and two statements were one.
+
+**Why three verdicts:** the queries that are neither clearly a read nor clearly a write are a real category — `EXPLAIN SELECT …`, or a query whose quoting does not close so the checker cannot read it at all. A binary check has to guess, and guessing wrong is either a blocked legitimate question or an unreviewed query reaching the database. `confirm` says what is actually true: the code cannot decide this one.
+
+**Who answers a `confirm`:** the person using the app. `SQLPipeline.validate_sql` still returns a pair for callers that have nobody to ask — v1, and the evaluation harness — and there the middle tier collapses to *no*, because an unanswerable question is not a licence to proceed. With `CONFIRM_SQL` on, the graph parks the query, shows it, and waits (`interrupt()`). A rejection is never put to a human: approving a query the reviewer refuses is not a decision anyone should be offered.
+
+**The other thing a human is asked about:** a repaired query. The repair loop rewrites the query after the first one came back empty, and its prompt has to be told not to widen a filter just to turn a zero into a number — exactly the mistake a person catches in one look at the SQL, and until Phase 3 it ran without anyone seeing it. Ordinary queries are not gated; a blanket confirmation on a read-only database is friction that teaches people to click through it.
+
+**Why not a full SQL parser?** `sqlglot` or `sqlparse` would be more robust, and remains the right move if the tiers ever need to reason about what a query touches rather than what kind of statement it is. Literal-stripping plus statement-splitting is ~60 lines with no dependency and closes the cases that were actually failing.
+
+**Scope:** still not a security firewall — the database is a read-only local file and the system is not public-facing. The middle tier is what that admission looks like in code rather than in a paragraph.
 
 ---
 
@@ -376,12 +392,17 @@ because a version that wins by making twice as many calls should have to say so.
 All tests cover pure functions and run without API calls:
 
 ```bash
-pytest tests/test_pipelines.py -v
+pytest tests -v
 ```
 
 | Test group | What it verifies |
 |------------|-----------------|
-| `validate_sql` | Blocks DROP/INSERT/UPDATE; allows SELECT; `created_at` does not trigger CREATE |
+| `validate.review` | Keywords inside string literals are not keywords; CTEs are reads; two statements are refused; what cannot be read is asked about, not guessed |
 | `explain_results` | Body column stripped before prompt; DataFrame capped at 20 rows |
 | `format_context` | Content, title, service, URL present; multiple docs separated |
 | `router` | Maps rag/sql/both correctly; unknown output falls back to RAG |
+| v1/v2 parity | rag-only and sql-only stay field-for-field identical to `AWSAgent` |
+| dispatch | Parallel fan-out really overlaps; a slow branch is not dropped when a fast one wakes the supervisor |
+| the loops | Each terminates on its own budget; repair fires on a COUNT of zero |
+| multi-turn | `history` crosses a turn boundary and nothing else does; threads do not see each other |
+| the gate | Nothing reaches the database before it is approved; resuming does not regenerate the query |

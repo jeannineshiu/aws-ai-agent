@@ -49,6 +49,7 @@ class Finding(TypedDict, total=False):
 
     # human-in-the-loop
     pending_sql: str | None      # query held at the confirmation gate
+    confirm_reason: str          # why it is being held
     sql_declined: bool           # the human refused it; do not retry, report it                 # SQL only — the generated query
     data: Any                       # SQL only — pandas DataFrame or None
     error: str | None               # set when the pipeline reported a failure
@@ -97,4 +98,5 @@ class AgentState(TypedDict, total=False):
 
     # human-in-the-loop
     pending_sql: str | None      # query held at the confirmation gate
+    confirm_reason: str          # why it is being held
     sql_declined: bool           # the human refused it; do not retry, report it
