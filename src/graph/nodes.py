@@ -1,32 +1,92 @@
 # src/graph/nodes.py
-"""Graph nodes for the Phase 0 port.
+"""Graph nodes.
 
-Each node is a thin adapter: it calls the existing pipeline unchanged and
-writes the result into state as a Finding. No pipeline logic lives here, and
-none of it was modified — src/rag/pipeline.py and src/sql/pipeline.py are
-byte-identical to the v1 versions.
+The specialist nodes stay thin adapters over the untouched pipelines in
+src/rag/ and src/sql/. What changed in Phase 1 is that they answer the question
+the supervisor hands them, which for the second half of a sequential plan is not
+the question the user asked.
 """
+from typing import Literal
+
+from langgraph.types import Command
+
 from src.graph.state import AgentState, Finding
-from src.router.router import RouteType
+
+MAX_PASSES = 4          # ceiling on supervisor dispatches; a loop needs a bound
 
 
-def make_route_node(router):
-    """Classify the question. Mirrors AWSAgent.run() step 1."""
-    def route_node(state: AgentState) -> dict:
-        route = router.route(state["question"])
-        value = route.value if isinstance(route, RouteType) else str(route)
-        print(f"  -> Route: {value}")
-        return {"route": value}
-    return route_node
+def _effective_query(state: AgentState) -> str:
+    """The question this specialist should answer.
 
+    Normally the user's question. For the second specialist in a sequential plan
+    it is the supervisor's rewrite, which carries the concrete entity the first
+    specialist found.
+    """
+    return state.get("agent_query") or state["question"]
+
+
+# ── supervisor ────────────────────────────────────────────────────────────────
+
+def make_supervisor_node(supervisor, max_passes: int = MAX_PASSES):
+    """Plan on the first pass, dispatch the remainder on later passes, then finish.
+
+    Returns a Command so that updating state and choosing the next hop are one
+    decision. `goto` takes a list, and a list of two is what fans out.
+    """
+    def supervisor_node(state: AgentState) -> Command[Literal["rag", "sql", "synthesize"]]:
+        passes = state.get("passes", 0) + 1
+        findings = state.get("findings", [])
+
+        # Budget guard. Answer with whatever has been gathered rather than looping.
+        if passes > max_passes:
+            return Command(goto="synthesize", update={"passes": passes})
+
+        # First pass: decide who runs and whether one depends on the other.
+        if not findings:
+            plan = supervisor.plan(state["question"])
+            agents, mode = list(plan.agents), plan.mode
+
+            if mode == "parallel" and len(agents) > 1:
+                print(f"  -> Dispatch: {' + '.join(agents)} (parallel)")
+                return Command(goto=agents, update={
+                    "plan": [], "mode": "parallel",
+                    "agent_query": state["question"], "passes": passes,
+                })
+
+            if len(agents) > 1:
+                print(f"  -> Dispatch: {' -> '.join(agents)} (sequential)")
+            else:
+                print(f"  -> Dispatch: {agents[0]}")
+            return Command(goto=[agents[0]], update={
+                "plan": agents[1:], "mode": mode,
+                "agent_query": state["question"], "passes": passes,
+            })
+
+        # Later passes: anything left in the plan runs now, with a query rewritten
+        # from what has already come back.
+        remaining = list(state.get("plan", []))
+        if remaining:
+            nxt = remaining[0]
+            refined = supervisor.refine(state["question"], findings[-1], nxt)
+            print(f"  -> Dispatch: {nxt} <- {refined[:60]!r}")
+            return Command(goto=[nxt], update={
+                "plan": remaining[1:], "agent_query": refined, "passes": passes,
+            })
+
+        return Command(goto="synthesize", update={"passes": passes})
+
+    return supervisor_node
+
+
+# ── specialists ───────────────────────────────────────────────────────────────
 
 def make_rag_node(rag_pipeline):
     def rag_node(state: AgentState) -> dict:
-        if state.get("route") == "both":
-            print("  -> Running RAG...")
-        result = rag_pipeline.run(state["question"])
+        query = _effective_query(state)
+        result = rag_pipeline.run(query)
         finding: Finding = {
             "agent": "rag",
+            "query": query,
             "answer": result.get("answer", ""),
             "citations": result.get("citations", []),
             "retrieved_texts": result.get("retrieved_texts", []),
@@ -38,11 +98,11 @@ def make_rag_node(rag_pipeline):
 
 def make_sql_node(sql_pipeline):
     def sql_node(state: AgentState) -> dict:
-        if state.get("route") == "both":
-            print("  -> Running SQL...")
-        result = sql_pipeline.run(state["question"])
+        query = _effective_query(state)
+        result = sql_pipeline.run(query)
         finding: Finding = {
             "agent": "sql",
+            "query": query,
             "answer": result.get("answer", ""),
             "sql": result.get("sql"),
             "data": result.get("data"),
@@ -52,52 +112,36 @@ def make_sql_node(sql_pipeline):
     return sql_node
 
 
-def compose_node(state: AgentState) -> dict:
-    """Assemble the final result from whatever findings were produced.
+# ── synthesis ─────────────────────────────────────────────────────────────────
 
-    Phase 0 reproduces AWSAgent.run() exactly, including the f-string join for
-    the `both` route. That join is a known defect — the two answers are stapled
-    together rather than reconciled — but fixing it here would make any change
-    in the evaluation numbers ambiguous between "the port" and "the fix".
-    It is Phase 1's job.
+def make_synthesize_node(synthesizer):
+    """Assemble the final result.
+
+    `route` is derived from which specialists actually produced findings rather
+    than predicted up front, so it reports what happened instead of what was
+    intended.
     """
-    by_agent = {f["agent"]: f for f in state.get("findings", [])}
-    rag = by_agent.get("rag")
-    sql = by_agent.get("sql")
+    def synthesize_node(state: AgentState) -> dict:
+        by_agent = {f["agent"]: f for f in state.get("findings", [])}
+        rag, sql = by_agent.get("rag"), by_agent.get("sql")
 
-    if rag and sql:
-        answer = (
-            f"**From documentation:**\n{rag['answer']}\n\n"
-            f"**From data analysis:**\n{sql['answer']}"
-        )
-    elif rag:
-        answer = rag["answer"]
-    elif sql:
-        answer = sql["answer"]
-    else:
-        # No specialist ran. Unreachable through the wired edges; kept so the
-        # node is total rather than raising on an empty findings list.
-        answer = "Unable to process this question. Please try again."
+        if rag and sql:
+            route = "both"
+            answer = synthesizer.merge(state["question"], rag, sql)
+        elif rag:
+            route, answer = "rag", rag["answer"]
+        elif sql:
+            route, answer = "sql", sql["answer"]
+        else:
+            # No specialist ran. Unreachable through the wired edges; kept so the
+            # node is total rather than raising on an empty findings list.
+            route, answer = "rag", "Unable to process this question. Please try again."
 
-    return {
-        "answer": answer,
-        "citations": rag.get("citations", []) if rag else [],
-        "data": sql.get("data") if sql else None,
-        "sql": sql.get("sql") if sql else None,
-    }
-
-
-# ── conditional edges ────────────────────────────────────────────────────────
-
-def after_route(state: AgentState) -> str:
-    """rag and both both start at the RAG node; both continues to SQL afterwards.
-
-    An unrecognised route falls through to "rag", matching QueryRouter's own
-    fallback: RAG will say it lacks the information rather than inventing SQL.
-    """
-    return "sql" if state.get("route") == "sql" else "rag"
-
-
-def after_rag(state: AgentState) -> str:
-    """Only the `both` route continues into SQL, preserving v1's RAG-then-SQL order."""
-    return "sql" if state.get("route") == "both" else "compose"
+        return {
+            "route": route,
+            "answer": answer,
+            "citations": rag.get("citations", []) if rag else [],
+            "data": sql.get("data") if sql else None,
+            "sql": sql.get("sql") if sql else None,
+        }
+    return synthesize_node

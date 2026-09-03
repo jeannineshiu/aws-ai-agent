@@ -128,9 +128,11 @@ aws-ai-agent/
 │   ├── router/router.py      # QueryRouter — LLM-based intent classification
 │   ├── rag/pipeline.py       # RAGPipeline — retrieve + generate
 │   ├── sql/pipeline.py       # SQLPipeline — text-to-SQL + execute + explain
-│   └── graph/                # v2 — LangGraph port (Phase 0: behaviour-identical)
+│   └── graph/                # v2 — LangGraph supervisor multi-agent system
 │       ├── state.py          #   AgentState + accumulating findings channel
-│       ├── nodes.py          #   route / rag / sql / compose nodes
+│       ├── supervisor.py     #   Supervisor — structured dispatch + query refinement
+│       ├── synthesizer.py    #   Synthesizer — cross-specialist merge
+│       ├── nodes.py          #   supervisor / rag / sql / synthesize nodes
 │       └── builder.py        #   StateGraph wiring + GraphAgent facade
 ├── scripts/
 │   ├── fetch_aws_docs.py     # Scrape AWS documentation
