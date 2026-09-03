@@ -28,14 +28,26 @@ MAX_SQL_ATTEMPTS = 2        # query attempts per dispatch, including the first
 MAX_REVISIONS = 1           # critic rejections honoured per turn
 
 
+def _question(state: AgentState) -> str:
+    """The turn's question, with references to earlier turns already resolved.
+
+    Every node downstream of the supervisor reads this instead of `question`.
+    On a first turn the two are the same string; on a follow-up, `question` is
+    still "how much does it cost" and nothing but the supervisor can act on
+    that. `question` is kept unchanged so the transcript records what the user
+    actually typed.
+    """
+    return state.get("resolved_question") or state["question"]
+
+
 def _effective_query(state: AgentState) -> str:
     """The question this specialist should answer.
 
-    Normally the user's question. For the second specialist in a sequential plan
+    Normally the turn's question. For the second specialist in a sequential plan
     it is the supervisor's rewrite, which carries the concrete entity the first
     specialist found.
     """
-    return state.get("agent_query") or state["question"]
+    return state.get("agent_query") or _question(state)
 
 
 def _fresh_budgets() -> dict:
@@ -74,14 +86,20 @@ def make_supervisor_node(supervisor, max_passes: int = MAX_PASSES):
             return Command(goto="synthesize", update={"passes": passes, "awaiting": []})
 
         if not findings:
-            plan = supervisor.plan(state["question"])
+            # History is only non-empty when a checkpointer carried the thread
+            # forward, so a single-turn caller takes exactly the Phase 1 path.
+            plan = supervisor.plan(state["question"], state.get("history"))
             agents, mode = list(plan.agents), plan.mode
+            question = getattr(plan, "standalone_question", "") or state["question"]
+            if question != state["question"]:
+                print(f"  -> Resolved: {question[:72]!r}")
 
             if mode == "parallel" and len(agents) > 1:
                 print(f"  -> Dispatch: {' + '.join(agents)} (parallel)")
                 return Command(goto=agents, update={
                     "plan": [], "mode": "parallel", "awaiting": agents,
-                    "agent_query": state["question"], "passes": passes,
+                    "resolved_question": question,
+                    "agent_query": question, "passes": passes,
                     **_fresh_budgets(),
                 })
 
@@ -91,14 +109,15 @@ def make_supervisor_node(supervisor, max_passes: int = MAX_PASSES):
                 print(f"  -> Dispatch: {agents[0]}")
             return Command(goto=[agents[0]], update={
                 "plan": agents[1:], "mode": mode, "awaiting": [agents[0]],
-                "agent_query": state["question"], "passes": passes,
+                "resolved_question": question,
+                "agent_query": question, "passes": passes,
                 **_fresh_budgets(),
             })
 
         remaining = list(state.get("plan", []))
         if remaining:
             nxt = remaining[0]
-            refined = supervisor.refine(state["question"], findings[-1], nxt)
+            refined = supervisor.refine(_question(state), findings[-1], nxt)
             print(f"  -> Dispatch: {nxt} <- {refined[:60]!r}")
             return Command(goto=[nxt], update={
                 "plan": remaining[1:], "agent_query": refined, "passes": passes,
@@ -266,7 +285,7 @@ def make_synthesize_node(synthesizer):
 
         if rag and sql:
             route = "both"
-            answer = synthesizer.merge(state["question"], rag, sql)
+            answer = synthesizer.merge(_question(state), rag, sql)
         elif rag:
             route, answer = "rag", rag["answer"]
         elif sql:
@@ -278,7 +297,7 @@ def make_synthesize_node(synthesizer):
 
         if critique:
             print(f"  -> Redrafting: {critique[:64]!r}")
-            answer = synthesizer.revise(state["question"], answer,
+            answer = synthesizer.revise(_question(state), answer,
                                         _contexts(state), critique)
 
         return {
@@ -302,16 +321,16 @@ def make_critic_node(critic=None, max_revisions: int = MAX_REVISIONS):
     answer is grounded in a DataFrame the pipeline computed, so there is no
     hallucination surface worth an LLM call.
     """
-    def critic_node(state: AgentState) -> Command[Literal["synthesize", "__end__"]]:
+    def critic_node(state: AgentState) -> Command[Literal["synthesize", "remember"]]:
         revisions = state.get("revisions", 0)
         contexts = _contexts(state)
 
         if critic is None or not contexts or revisions >= max_revisions:
-            return Command(goto=END)
+            return Command(goto="remember")
 
-        verdict = critic.check(state["question"], state.get("answer", ""), contexts)
+        verdict = critic.check(_question(state), state.get("answer", ""), contexts)
         if verdict.grounded:
-            return Command(goto=END)
+            return Command(goto="remember")
 
         print(f"  -> Critic rejected: {verdict.unsupported[:64]!r}")
         return Command(goto="synthesize", update={
@@ -320,3 +339,28 @@ def make_critic_node(critic=None, max_revisions: int = MAX_REVISIONS):
         })
 
     return critic_node
+
+
+# ── remember ──────────────────────────────────────────────────────────────────
+
+def make_remember_node():
+    """Record the finished turn, so the next one can refer back to it.
+
+    A separate node rather than a write from `synthesize` because synthesis can
+    run twice in a turn: the critic sends a rejected answer back to be
+    redrafted, and a history write there would file both drafts as if the user
+    had asked twice. This node sits on the graph's single exit, so it runs once
+    per turn by construction.
+
+    The transcript stores what the user typed, not the resolved rewrite. The
+    supervisor resolves the next follow-up against the conversation as it
+    happened; feeding it back its own rewrites would let one bad resolution
+    fix itself into the record.
+    """
+    def remember_node(state: AgentState) -> dict:
+        return {"history": [{
+            "question": state["question"],
+            "answer": state.get("answer", ""),
+        }]}
+
+    return remember_node

@@ -26,7 +26,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class SQLOnly:
     """Pins dispatch to the SQL specialist so the comparison isolates the loop."""
-    def plan(self, question): return Plan(agents=["sql"], mode="parallel")
+    def plan(self, question, history=None): return Plan(agents=["sql"], mode="parallel")
     def refine(self, question, finding, next_agent): return question
 
 

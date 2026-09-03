@@ -14,9 +14,28 @@ outer loops.
 dispatch both specialists write this key in the same superstep, and without the
 reducer the second write silently replaces the first. Phase 0 was sequential so
 it never exercised that; Phase 1 does.
+
+Phase 3 adds the second turn. With a checkpointer the state survives the turn
+that produced it, which is the point for `history` and a bug for everything
+else: `findings` would keep the last turn's evidence and `passes` would start
+the new turn already over budget. So the per-turn channels are reset by the
+caller (`GraphAgent._turn_input`), and `findings` gets a reducer that
+understands a reset — a plain `operator.add` channel has no way to express one.
 """
 import operator
 from typing import Annotated, Any, TypedDict
+
+
+def merge_findings(left: list | None, right: list | None) -> list:
+    """Accumulate within a turn; `None` clears the channel for the next one.
+
+    Every write from a node is a list and appends, so parallel dispatch still
+    merges. `None` is reserved for the turn boundary, and only the caller
+    writes it.
+    """
+    if right is None:
+        return []
+    return (left or []) + list(right)
 
 
 class Finding(TypedDict, total=False):
@@ -26,7 +45,11 @@ class Finding(TypedDict, total=False):
     query: str                      # the question this specialist actually answered
     citations: list[dict]           # RAG only
     retrieved_texts: list[str]      # RAG only — kept for evaluation
-    sql: str | None                 # SQL only — the generated query
+    sql: str | None
+
+    # human-in-the-loop
+    pending_sql: str | None      # query held at the confirmation gate
+    sql_declined: bool           # the human refused it; do not retry, report it                 # SQL only — the generated query
     data: Any                       # SQL only — pandas DataFrame or None
     error: str | None               # set when the pipeline reported a failure
 
@@ -37,7 +60,11 @@ class AgentState(TypedDict, total=False):
     `question` is the only required input; everything else is produced by a node.
     """
     question: str
-    findings: Annotated[list[Finding], operator.add]  # merges, never clobbers
+    findings: Annotated[list[Finding], merge_findings]  # merges, never clobbers
+
+    # multi-turn
+    history: Annotated[list[dict], operator.add]  # {question, answer} per finished turn
+    resolved_question: str   # the question with references to earlier turns filled in
 
     # supervisor bookkeeping
     plan: list[str]          # specialists still to dispatch (sequential only)
@@ -66,3 +93,7 @@ class AgentState(TypedDict, total=False):
     citations: list[dict]
     data: Any
     sql: str | None
+
+    # human-in-the-loop
+    pending_sql: str | None      # query held at the confirmation gate
+    sql_declined: bool           # the human refused it; do not retry, report it

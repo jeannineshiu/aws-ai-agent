@@ -18,7 +18,7 @@ from src.agent.agent import AWSAgent
 from src.graph.builder import GraphAgent, build_graph
 from src.graph.critic import Verdict
 from src.graph.grader import Grade
-from src.graph.supervisor import Plan
+from src.graph.supervisor import ContextualPlan, Plan
 from src.router.router import RouteType
 
 
@@ -36,14 +36,19 @@ class FakeRouter:
 
 
 class FakeSupervisor:
-    def __init__(self, agents, mode="parallel", refined="REFINED QUESTION"):
+    def __init__(self, agents, mode="parallel", refined="REFINED QUESTION",
+                 standalone=None):
         self.plan_obj = Plan(agents=agents, mode=mode)
+        self.standalone = standalone      # None: the question stands on its own
         self.refined = refined
         self.plan_calls, self.refine_calls = [], []
 
-    def plan(self, question):
-        self.plan_calls.append(question)
-        return self.plan_obj
+    def plan(self, question, history=None):
+        self.plan_calls.append((question, list(history or [])))
+        if self.standalone is None:
+            return self.plan_obj
+        return ContextualPlan(agents=self.plan_obj.agents, mode=self.plan_obj.mode,
+                              standalone_question=self.standalone)
 
     def refine(self, question, finding, next_agent):
         self.refine_calls.append((question, finding["agent"], next_agent))
@@ -609,3 +614,106 @@ def test_loops_all_enables_every_loop():
         GraphAgent(FakeSupervisor(["rag"]), FakeRAG(), FakeSQL(), FakeSynthesizer(),
                    loops="all")
         assert grader.called and critic.called
+
+
+# ── multi-turn ────────────────────────────────────────────────────────────────
+#
+# Everything here needs a real checkpointer. A turn boundary is not a thing the
+# graph does; it is a thing that must survive the graph having done nothing to
+# clear it, and with no checkpointer there is nothing to survive.
+
+def make_memory_graph(agents, mode="parallel", standalone=None, **kw):
+    sup = FakeSupervisor(agents, mode, standalone=standalone)
+    rag, sql, syn = FakeRAG(), FakeSQL(), FakeSynthesizer()
+    agent = GraphAgent(sup, rag, sql, syn, loops=False, memory=True, **kw)
+    return agent, sup, rag, sql, syn
+
+
+def test_a_finished_turn_is_recorded():
+    agent, *_ = make_memory_graph(["rag"])
+    agent.run("What is Bedrock?", thread_id="t1")
+    history = agent.graph.get_state({"configurable": {"thread_id": "t1"}}).values["history"]
+    assert history == [{"question": "What is Bedrock?", "answer": "RAG ANSWER"}]
+
+
+def test_the_second_turn_sees_the_first():
+    agent, sup, *_ = make_memory_graph(["rag"])
+    agent.run("What is Bedrock?", thread_id="t1")
+    agent.run("How much does it cost?", thread_id="t1")
+    _, history = sup.plan_calls[1]
+    assert history == [{"question": "What is Bedrock?", "answer": "RAG ANSWER"}]
+
+
+def test_threads_do_not_see_each_other():
+    """Two browser tabs are two conversations, not one."""
+    agent, sup, *_ = make_memory_graph(["rag"])
+    agent.run("What is Bedrock?", thread_id="t1")
+    agent.run("How much does it cost?", thread_id="t2")
+    assert sup.plan_calls[1][1] == []
+
+
+def test_the_first_turn_is_planned_exactly_as_before():
+    """No history, no follow-up prompt. The single-turn numbers stay comparable."""
+    agent, sup, *_ = make_memory_graph(["rag"])
+    agent.run("What is Bedrock?", thread_id="t1")
+    assert sup.plan_calls == [("What is Bedrock?", [])]
+
+
+def test_last_turns_findings_do_not_answer_this_turn():
+    """The failure this guards: `findings` accumulates, and a checkpointer keeps
+    it. Without the reset, turn two synthesises turn one's evidence - a rag-only
+    follow-up would come back routed `both`."""
+    agent, sup, rag, sql, syn = make_memory_graph(["rag"])
+    agent.run("What is Bedrock?", thread_id="t1")
+    sup.plan_obj.agents = ["sql"]
+    result = agent.run("How many questions mention it?", thread_id="t1")
+    assert result["route"] == "sql"
+    assert syn.merge_calls == [], "turn two had one specialist, nothing to merge"
+
+
+def test_the_dispatch_budget_is_fresh_each_turn():
+    """`passes` is a per-turn ceiling. Carried over, turn two starts spent and
+    goes straight to synthesis without dispatching anyone."""
+    agent, _, rag, _, _ = make_memory_graph(["rag"], max_passes=2)
+    for i in range(4):
+        agent.run(f"question {i}", thread_id="t1")
+    assert len(rag.generate_calls) == 4, "every turn should have reached the specialist"
+
+
+def test_the_resolved_question_is_what_the_specialist_answers():
+    agent, sup, rag, *_ = make_memory_graph(
+        ["rag"], standalone="How much does Amazon Bedrock cost?")
+    agent.run("What is Bedrock?", thread_id="t1")
+    agent.run("How much does it cost?", thread_id="t1")
+    assert rag.generate_calls[-1] == "How much does Amazon Bedrock cost?"
+
+
+def test_the_transcript_keeps_what_the_user_typed():
+    """History records the conversation, not the supervisor's reading of it.
+    Feeding rewrites back would let one bad resolution compound."""
+    agent, *_ = make_memory_graph(
+        ["rag"], standalone="How much does Amazon Bedrock cost?")
+    agent.run("What is Bedrock?", thread_id="t1")
+    agent.run("How much does it cost?", thread_id="t1")
+    history = agent.graph.get_state({"configurable": {"thread_id": "t1"}}).values["history"]
+    assert [t["question"] for t in history] == ["What is Bedrock?",
+                                                "How much does it cost?"]
+
+
+def test_a_redrafted_answer_is_filed_once():
+    """Synthesis runs twice when the critic rejects a draft. The turn is still
+    one turn, and only the answer that left is recorded."""
+    sup, rag, sql, syn = FakeSupervisor(["rag"]), FakeRAG(), FakeSQL(), FakeSynthesizer()
+    agent = GraphAgent(sup, rag, sql, syn, critic=FakeCritic([False, True]),
+                       loops=False, memory=True)
+    agent.run("What is Bedrock?", thread_id="t1")
+    history = agent.graph.get_state({"configurable": {"thread_id": "t1"}}).values["history"]
+    assert history == [{"question": "What is Bedrock?", "answer": "REVISED ANSWER"}]
+
+
+def test_memory_is_off_by_default():
+    """A compiled checkpointer makes thread_id mandatory, and the evaluation
+    harness runs 30 questions that must not see each other."""
+    agent, *_ = make_graph(["rag"])
+    assert agent.memory is False
+    assert agent.run("q")["route"] == "rag"
