@@ -1,0 +1,299 @@
+[
+  {
+    "question": "What is Amazon SageMaker?",
+    "ground_truth": "Amazon SageMaker is a fully managed machine learning service that enables data scientists and developers to build, train, and deploy ML models quickly in a production-ready environment.",
+    "type": "rag",
+    "expected_agents": [
+      "rag"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "What is Amazon Bedrock?",
+    "ground_truth": "Amazon Bedrock is a fully managed serverless service that provides access to high-performing foundation models from leading AI companies through a single API, without requiring infrastructure management, designed for building generative AI applications.",
+    "type": "rag",
+    "expected_agents": [
+      "rag"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "How does SageMaker Model Monitor work?",
+    "ground_truth": "SageMaker Model Monitor continuously monitors ML models in production, detecting data drift, concept drift, bias, and model quality degradation by comparing current data distributions against a baseline captured during training.",
+    "type": "rag",
+    "expected_agents": [
+      "rag"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "What is SageMaker Autopilot?",
+    "ground_truth": "SageMaker Autopilot automatically trains and tunes the best ML models for classification or regression tasks, providing full visibility into the generated models and preprocessing steps.",
+    "type": "rag",
+    "expected_agents": [
+      "rag"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "What is SageMaker Feature Store?",
+    "ground_truth": "SageMaker Feature Store is a fully managed repository for storing, sharing, and managing ML features, enabling consistent feature reuse across training and inference.",
+    "type": "rag",
+    "expected_agents": [
+      "rag"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "What is Amazon Rekognition used for?",
+    "ground_truth": "Amazon Rekognition is a computer vision service that provides image and video analysis capabilities including object detection, face recognition, text detection, and content moderation.",
+    "type": "rag",
+    "expected_agents": [
+      "rag"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "What is Amazon Comprehend?",
+    "ground_truth": "Amazon Comprehend is a natural language processing service that uses ML to find insights in text, including sentiment analysis, entity recognition, key phrase extraction, and language detection.",
+    "type": "rag",
+    "expected_agents": [
+      "rag"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "How does SageMaker Pipelines work?",
+    "ground_truth": "SageMaker Pipelines is an MLOps workflow orchestration service that allows you to create, automate, and manage end-to-end ML workflows including data preparation, training, evaluation, and deployment steps.",
+    "type": "rag",
+    "expected_agents": [
+      "rag"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "What are the deployment options in SageMaker?",
+    "ground_truth": "SageMaker offers multiple deployment options including Real-time inference for low-latency predictions, Serverless inference for intermittent traffic, Asynchronous inference for large payloads, and Batch Transform for offline predictions.",
+    "type": "rag",
+    "expected_agents": [
+      "rag"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "What is Amazon Bedrock Agents?",
+    "ground_truth": "Bedrock Agents enables foundation models to execute multi-step tasks by automatically calling APIs, querying knowledge bases, and reasoning over information to complete complex business workflows.",
+    "type": "rag",
+    "expected_agents": [
+      "rag"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "How many SageMaker questions were asked in 2023?",
+    "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%amazon-sagemaker%' AND created_at >= '2023-01-01' AND created_at < '2024-01-01'",
+    "note": "Expected ~432, allow 5% tolerance for SQL generation variation",
+    "type": "sql",
+    "expected_agents": [
+      "sql"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "Which tag combination has the most unanswered questions?",
+    "ground_truth_sql": "SELECT tags, COUNT(*) as count FROM stackoverflow WHERE answer_count = 0 GROUP BY tags ORDER BY count DESC LIMIT 1",
+    "type": "sql",
+    "expected_agents": [
+      "sql"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "How many open issues does the SageMaker Python SDK have?",
+    "ground_truth_sql": "SELECT COUNT(*) FROM issues WHERE repo = 'aws/sagemaker-python-sdk' AND state = 'open'",
+    "type": "sql",
+    "expected_agents": [
+      "sql"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "What is the average number of comments on issues across all SageMaker related repos?",
+    "ground_truth_sql": "SELECT AVG(comments) FROM issues WHERE repo LIKE '%sagemaker%'",
+    "type": "sql",
+    "expected_agents": [
+      "sql"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "How many Bedrock questions were asked on Stack Overflow?",
+    "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%amazon-bedrock%'",
+    "note": "Expected ~169, allow 5% tolerance for SQL generation variation",
+    "type": "sql",
+    "expected_agents": [
+      "sql"
+    ],
+    "expected_order": "single"
+  },
+  {
+    "question": "Of SageMaker, Bedrock, Rekognition and Comprehend, which is asked about most on Stack Overflow, and what is that service for?",
+    "expected_agents": [
+      "sql",
+      "rag"
+    ],
+    "expected_order": "sequential",
+    "ground_truth_sql": "SELECT 'sagemaker', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-sagemaker>%'\nUNION ALL SELECT 'bedrock', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-bedrock>%'\nUNION ALL SELECT 'rekognition', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-rekognition>%'\nUNION ALL SELECT 'comprehend', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-comprehend>%'\nORDER BY 2 DESC LIMIT 1",
+    "ground_truth": "SageMaker is the most asked about, with 1,840 tagged Stack Overflow questions, far ahead of Bedrock, Rekognition and Comprehend. Amazon SageMaker is a fully managed machine learning service for building, training and deploying models in a production-ready environment.",
+    "type": "both"
+  },
+  {
+    "question": "Which AWS AI service in the dataset has the fewest Stack Overflow questions, and what does that service do?",
+    "expected_agents": [
+      "sql",
+      "rag"
+    ],
+    "expected_order": "sequential",
+    "ground_truth_sql": "SELECT 'comprehend', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-comprehend>%'\nUNION ALL SELECT 'rekognition', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-rekognition>%'\nUNION ALL SELECT 'bedrock', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-bedrock>%'\nORDER BY 2 ASC LIMIT 1",
+    "ground_truth": "Comprehend has the fewest, with 32 tagged questions. Amazon Comprehend is a natural language processing service that uses machine learning to find insights and relationships in text, including entities, key phrases, sentiment and language.",
+    "type": "both"
+  },
+  {
+    "question": "Between SageMaker and Bedrock, which has more unanswered Stack Overflow questions, and how does that service work?",
+    "expected_agents": [
+      "sql",
+      "rag"
+    ],
+    "expected_order": "sequential",
+    "ground_truth_sql": "SELECT 'sagemaker', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-sagemaker>%' AND answer_count=0\nUNION ALL SELECT 'bedrock', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-bedrock>%' AND answer_count=0\nORDER BY 2 DESC LIMIT 1",
+    "ground_truth": "SageMaker has more unanswered questions, 336 against Bedrock's 41. SageMaker is a fully managed service covering the machine learning lifecycle: preparing data, training models on managed infrastructure, tuning them, and deploying them to endpoints for inference.",
+    "type": "both"
+  },
+  {
+    "question": "Which tracked repository has the most open issues, and what is that project for?",
+    "expected_agents": [
+      "sql",
+      "rag"
+    ],
+    "expected_order": "sequential",
+    "ground_truth_sql": "SELECT repo FROM issues WHERE state='open' GROUP BY repo ORDER BY COUNT(*) DESC LIMIT 1",
+    "ground_truth": "The repository with the most open issues is aws-neuron/aws-neuron-sdk, with 79 open. The documentation corpus does not cover the Neuron SDK, so what the project is for cannot be answered from the available sources.",
+    "type": "both"
+  },
+  {
+    "question": "How many Stack Overflow questions are tagged for SageMaker, and how does training a model on SageMaker work?",
+    "expected_agents": [
+      "sql",
+      "rag"
+    ],
+    "expected_order": "parallel",
+    "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-sagemaker>%'",
+    "ground_truth": "There are 1,840 Stack Overflow questions tagged for SageMaker. To train a model, SageMaker runs a training job on managed compute: you supply training data in S3 and either a built-in algorithm or your own container, SageMaker provisions the instances, runs the job and writes the resulting model artifacts back to S3.",
+    "type": "both"
+  },
+  {
+    "question": "How many Bedrock questions have no answer, and which foundation models does Bedrock support?",
+    "expected_agents": [
+      "sql",
+      "rag"
+    ],
+    "expected_order": "parallel",
+    "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-bedrock>%' AND answer_count=0",
+    "ground_truth": "41 Bedrock questions have no answer. Bedrock provides access through a single API to foundation models from several providers, including Amazon's own Titan and Nova models alongside models from third-party companies, covering text, chat and embedding tasks.",
+    "type": "both"
+  },
+  {
+    "question": "How many Rekognition questions are in the dataset, and what can Rekognition detect in an image?",
+    "expected_agents": [
+      "sql",
+      "rag"
+    ],
+    "expected_order": "parallel",
+    "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-rekognition>%'",
+    "ground_truth": "There are 79 Rekognition questions in the dataset. Amazon Rekognition analyses images and video and can detect objects, scenes and concepts, as well as faces, returning attributes and bounding boxes for what it finds.",
+    "type": "both"
+  },
+  {
+    "question": "How many open issues does the SageMaker Python SDK have, and what deployment options does SageMaker offer?",
+    "expected_agents": [
+      "sql",
+      "rag"
+    ],
+    "expected_order": "parallel",
+    "ground_truth_sql": "SELECT COUNT(*) FROM issues WHERE repo='aws/sagemaker-python-sdk' AND state='open'",
+    "ground_truth": "The SageMaker Python SDK has 53 open issues. SageMaker offers several deployment options depending on the traffic pattern: real-time endpoints for low-latency inference, serverless inference for intermittent traffic, asynchronous inference for large payloads or long processing times, and batch transform for offline scoring.",
+    "type": "both"
+  },
+  {
+    "question": "How many Comprehend questions exist in the data, and what is Comprehend used for?",
+    "expected_agents": [
+      "sql",
+      "rag"
+    ],
+    "expected_order": "parallel",
+    "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-comprehend>%'",
+    "ground_truth": "There are 32 Comprehend questions in the data. Amazon Comprehend is a natural language processing service that extracts insights from text, including entities, key phrases, sentiment, language and topics, without requiring machine learning expertise.",
+    "type": "both"
+  },
+  {
+    "question": "How many repositories are tracked in the issues data, and what does SageMaker Model Monitor do?",
+    "expected_agents": [
+      "sql",
+      "rag"
+    ],
+    "expected_order": "parallel",
+    "ground_truth_sql": "SELECT COUNT(DISTINCT repo) FROM issues",
+    "ground_truth": "Four repositories are tracked. SageMaker Model Monitor watches models in production and detects drift by comparing live data and predictions against a baseline captured from the training data, covering data quality, model quality, bias and feature attribution.",
+    "type": "both"
+  },
+  {
+    "question": "How many questions mention Amazon Comprehend?",
+    "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-comprehend>%'",
+    "type": "sql",
+    "expected_agents": [
+      "sql"
+    ],
+    "expected_order": "single",
+    "adversarial": true
+  },
+  {
+    "question": "How many Rekognition questions are there?",
+    "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-rekognition>%'",
+    "type": "sql",
+    "expected_agents": [
+      "sql"
+    ],
+    "expected_order": "single",
+    "adversarial": true
+  },
+  {
+    "question": "How many open issues does the Neuron SDK have?",
+    "ground_truth_sql": "SELECT COUNT(*) FROM issues WHERE repo='aws-neuron/aws-neuron-sdk' AND state='open'",
+    "type": "sql",
+    "expected_agents": [
+      "sql"
+    ],
+    "expected_order": "single",
+    "adversarial": true
+  },
+  {
+    "question": "How many SageMaker questions were asked in 2024?",
+    "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-sagemaker>%' AND created_at>='2024-01-01' AND created_at<'2025-01-01'",
+    "type": "sql",
+    "expected_agents": [
+      "sql"
+    ],
+    "expected_order": "single",
+    "adversarial": true
+  },
+  {
+    "question": "What is the average score of SageMaker questions?",
+    "ground_truth_sql": "SELECT AVG(score) FROM stackoverflow WHERE tags LIKE '%<amazon-sagemaker>%'",
+    "type": "sql",
+    "expected_agents": [
+      "sql"
+    ],
+    "expected_order": "single",
+    "adversarial": true
+  }
+]

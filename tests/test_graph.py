@@ -384,12 +384,34 @@ def test_revisions_are_capped():
     assert out["answer"] == "REVISED ANSWER"
 
 
-def test_critic_skips_sql_only_answers():
-    """No retrieved evidence to check against, so no LLM call worth making."""
-    critic = FakeCritic(verdicts=(False,))
+def test_critic_sees_query_results_not_just_documents():
+    """The bug the harder eval set exposed. The critic judged a `both` answer
+    against retrieved documents alone, found no support for a figure that came
+    from the database, and the redraft replaced a correct answer with "I cannot
+    answer" — faithfulness up, answer relevancy down, both for the wrong reason.
+    """
+    seen = {}
+
+    class RecordingCritic(FakeCritic):
+        def check(self, question, answer, contexts):
+            seen["contexts"] = contexts
+            return super().check(question, answer, contexts)
+
+    v2, *_ = make_graph(["rag", "sql"], critic=RecordingCritic(verdicts=(True,)))
+    v2.run("q")
+
+    joined = "\n".join(seen["contexts"])
+    assert "chunk one" in joined, "documents missing from the evidence"
+    assert "SELECT 1" in joined, "query results missing from the evidence"
+
+
+def test_critic_still_runs_without_documents():
+    """A SQL-only answer is an LLM summarising a DataFrame, which can misread it.
+    The query result is evidence, so there is something to check."""
+    critic = FakeCritic(verdicts=(True,))
     v2, *_ = make_graph(["sql"], critic=critic)
     v2.run("q")
-    assert critic.calls == []
+    assert len(critic.calls) == 1
 
 
 def test_no_critic_means_no_check():
@@ -554,3 +576,36 @@ def test_supervisor_parks_early_wakeups_without_spending_budget():
     grader = FakeGrader(verdicts=(False, True))
     v2, *_ = make_graph(["rag", "sql"], mode="parallel", grader=grader, max_passes=2)
     assert v2.run("q")["route"] == "both"
+
+
+# ── which loops ship ──────────────────────────────────────────────────────────
+
+def test_default_configuration_is_repair_only():
+    """Phase 4 measured all three loops. Only SQL repair paid for itself, so it
+    is the only one on by default — the grader and the critic stay behind the
+    flag rather than in the request path."""
+    from unittest.mock import patch
+    from src.graph.critic import Critic
+    from src.graph.grader import RetrievalGrader
+    from src.graph.repair import SQLRepairer
+
+    with patch.object(SQLRepairer, "__init__", return_value=None) as repairer, \
+         patch.object(RetrievalGrader, "__init__", return_value=None) as grader, \
+         patch.object(Critic, "__init__", return_value=None) as critic:
+        GraphAgent(FakeSupervisor(["rag"]), FakeRAG(), FakeSQL(), FakeSynthesizer())
+        assert repairer.called, "SQL repair should be on"
+        assert not grader.called and not critic.called, "grader and critic should be off"
+
+
+def test_loops_all_enables_every_loop():
+    from unittest.mock import patch
+    from src.graph.critic import Critic
+    from src.graph.grader import RetrievalGrader
+    from src.graph.repair import SQLRepairer
+
+    with patch.object(SQLRepairer, "__init__", return_value=None), \
+         patch.object(RetrievalGrader, "__init__", return_value=None) as grader, \
+         patch.object(Critic, "__init__", return_value=None) as critic:
+        GraphAgent(FakeSupervisor(["rag"]), FakeRAG(), FakeSQL(), FakeSynthesizer(),
+                   loops="all")
+        assert grader.called and critic.called

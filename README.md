@@ -281,41 +281,95 @@ Streamlit re-runs the entire script on every user interaction. Without caching, 
 
 ## Evaluation
 
-The system includes an end-to-end evaluation pipeline (`scripts/run_evaluation.py`) that measures both the RAG and SQL pipelines against ground-truth data.
-
-### Run evaluation
+The harness runs whichever implementation is asked for and scores what comes out
+of it. That is a change worth stating plainly: the earlier version called
+`RAGPipeline` and `SQLPipeline` directly, so routing, dispatch and every loop
+were invisible to it — the `both` route carried a correctness bug for the whole
+life of the project without a single number touching it.
 
 ```bash
-python scripts/run_evaluation.py
+python scripts/run_evaluation.py --version v1          # AWSAgent, the linear baseline
+python scripts/run_evaluation.py --version v2          # graph, SQL repair only (default)
+python scripts/run_evaluation.py --version v2-flat     # graph, no quality loops
+python scripts/run_evaluation.py --version v2-repair   # explicit repair-only
 ```
 
-Results are saved to `data/processed/eval_report_<timestamp>.json` and visible in the **Evaluation Dashboard** tab of the Streamlit app.
+Reports land in `data/processed/eval_report_<timestamp>_<version>.json` and the
+Streamlit **Evaluation Dashboard** tab renders the latest.
 
-### RAG evaluation — RAGAS metrics
+### The question set
 
-Evaluated on 10 ground-truth Q&A pairs covering SageMaker, Bedrock, Rekognition, Comprehend, and Pipelines:
+30 samples: 10 documentation, 10 analytical (5 of them adversarial), 10 requiring
+both. Each carries `expected_agents` and `expected_order`, which is what makes
+delegation measurable.
 
-| Metric | What it measures |
-|--------|-----------------|
-| **Faithfulness** | Answer only uses information from retrieved context — no hallucination |
-| **Answer Relevancy** | Answer directly addresses the question asked |
-| **Context Precision** | Retrieved chunks are relevant to the question |
-| **Context Recall** | Retrieved chunks cover the information needed to answer |
+Two things about it are deliberate. The original 15-sample set scored between
+0.91 and 1.00 on every metric with a run-to-run spread of 0.05 — no room for an
+improvement to register. And it contained **zero** `both` samples, so the one
+route with a known bug had never been evaluated at all.
 
-RAGAS uses `gpt-4o-mini` as the evaluation LLM. Each metric is scored 0–1; higher is better.
+The adversarial subset exists because of a specific failure: asked how many
+Bedrock questions exist, the model writes `tags LIKE '%<bedrock>%'`. The tag is
+really `<amazon-bedrock>`, so the query is valid SQL that finds nothing, and the
+nothing gets reported as the answer.
 
-### SQL evaluation — result matching
+### Results
 
-Evaluated on 5 natural-language → SQL pairs with ground-truth queries:
+30 samples, one run each. RAGAS uses an LLM judge, so treat differences under
+about 0.05 as noise.
 
-- **Numeric queries** (COUNT, AVG): compared with 5% tolerance to account for minor SQL generation variation (e.g., slightly different `LIKE` filters)
-- **String queries** (tag names, labels): exact string match after stripping whitespace
+| | v1 linear | no loops | **repair only** | all loops |
+|---|---|---|---|---|
+| Faithfulness | 0.820 | 0.808 | **0.848** | 0.854 |
+| Answer relevancy | 0.487 | 0.699 | **0.724** | 0.610 |
+| Context precision | 0.529 | 0.529 | 0.479 | 0.454 |
+| Context recall | 0.596 | 0.537 | 0.562 | 0.596 |
+| SQL accuracy | 40% | 40% | **55%** | 55% |
+| SQL, adversarial subset | 60% | 60% | **100%** | 100% |
+| Delegation accuracy | 100% | 100% | 100% | 100% |
+| Order accuracy | 87% | 100% | **100%** | 100% |
+| LLM calls per query | 2.87 | 3.43 | **3.73** | 5.93 |
+| p50 latency | 2.55s | 2.92s | **3.21s** | 4.57s |
 
-### Design decision: evaluation LLM
+**What the supervisor bought.** Answer relevancy 0.487 → 0.699 and order accuracy
+87% → 100%, for 0.56 of a call per query. Both come from the same fix: v1 sent
+the raw question to both specialists, so for "which repo has the most open
+issues, and what is that repo for?" the retriever searched a string that appears
+in no document. The supervisor runs the analytics half first and rewrites the
+query from what came back.
 
-RAGAS internally decomposes LLM answers into individual statements to verify faithfulness. Long, detailed answers can produce 20+ statements, exceeding `gpt-4o-mini`'s default `max_tokens`. The evaluation LLM is configured with `max_tokens=4096` to prevent truncated JSON output causing silent NaN scores.
+**What the SQL repair loop bought.** The adversarial subset from 60% to 100%, and
+overall SQL accuracy from 40% to 55%, for 0.3 of a call per query — it only fires
+on failure, so a query that works costs nothing extra.
 
----
+**What the grader and the critic cost.** 2.2 extra calls per query and 1.36s of
+p50 latency, to move faithfulness by 0.006 — inside the noise — while *losing*
+0.114 of answer relevancy. The critic trims claims it cannot tie to a source, and
+on this question set it trims useful ones. They are off by default and stay
+behind `loops="all"`; a differently shaped question set could justify them, this
+one does not.
+
+**One bug the harness caught.** The critic originally judged answers against
+retrieved documents alone. On a `both` route the factual core often comes from
+the query result, so it rejected a correct "aws-neuron/aws-neuron-sdk has 79 open
+issues" for not appearing in any AWS document, and the redraft replaced it with
+"I cannot answer". Faithfulness rose to 0.927 because the answer no longer
+claimed anything; answer relevancy collapsed to 0.498 for the same reason. The
+critic's evidence now includes query results.
+
+### Metrics
+
+**RAGAS** — faithfulness (are the answer's claims supported by the sources?),
+answer relevancy (does it answer the question asked?), context precision (is the
+retrieved material useful and well ranked?), context recall (was everything the
+reference answer needs retrieved?).
+
+**Delegation accuracy** — did the right specialists run? **Order accuracy** —
+where one depends on the other, did they run in the right order?
+
+**Cost** — LLM calls per query and p50 latency, reported alongside quality
+because a version that wins by making twice as many calls should have to say so.
+
 
 ## Tests
 

@@ -84,9 +84,27 @@ class GraphAgent:
     harness can swap implementations by changing the constructor.
     """
 
+    #   loops="repair"  SQL repair only. The default, because it is the only
+    #                    configuration the evaluation supports paying for.
+    #   loops="all"      every quality loop, including grading and the critic.
+    #   loops=False      the Phase 1 graph, for comparison.
+    #
+    # Measured over 30 ground-truth samples (scripts/run_evaluation.py):
+    #
+    #                        v1     no loops   repair only   all loops
+    #   answer_relevancy   0.487      0.699        0.724        0.610
+    #   faithfulness       0.820      0.808        0.848        0.854
+    #   adversarial SQL      60%        60%         100%         100%
+    #   LLM calls/query     2.87       3.43         3.73         5.93
+    #
+    # The grader and the critic together add 2.2 calls per query and move
+    # faithfulness by 0.006 - inside the run-to-run noise band - while costing
+    # 0.114 of answer relevancy, because the critic trims content it cannot tie
+    # to a source. They stay in the tree behind the flag: a differently shaped
+    # question set could justify them, this one does not.
     def __init__(self, supervisor=None, rag_pipeline=None, sql_pipeline=None,
                  synthesizer=None, grader=None, repairer=None, critic=None,
-                 checkpointer=None, loops: bool = True, **budgets):
+                 checkpointer=None, loops="repair", **budgets):
         # Imported lazily so tests can build a graph from fakes without touching
         # Chroma, SQLite or the OpenAI client.
         if None in (supervisor, rag_pipeline, sql_pipeline, synthesizer):
@@ -102,18 +120,46 @@ class GraphAgent:
             synthesizer = synthesizer or Synthesizer()
             print("Agent ready.")
 
-        # loops=False builds the Phase 1 graph, so the two can be compared.
-        if loops and None in (grader, repairer, critic):
-            from src.graph.critic import Critic
-            from src.graph.grader import RetrievalGrader
+        if loops:
             from src.graph.repair import SQLRepairer
-
-            grader = grader or RetrievalGrader()
             repairer = repairer or SQLRepairer()
-            critic = critic or Critic()
+
+            if loops == "all":
+                from src.graph.critic import Critic
+                from src.graph.grader import RetrievalGrader
+                grader = grader or RetrievalGrader()
+                critic = critic or Critic()
 
         self.graph = build_graph(supervisor, rag_pipeline, sql_pipeline, synthesizer,
                                  grader, repairer, critic, checkpointer, **budgets)
+
+    def run_traced(self, question: str, config: dict | None = None) -> dict:
+        """Final state plus the sequence of nodes that produced it.
+
+        The trajectory is what makes delegation measurable. Without it the
+        harness can only score the answer, which is how routing went unevaluated
+        through every earlier phase.
+        """
+        import time
+
+        trajectory, state = [], {}
+        t0 = time.perf_counter()
+        for chunk in self.graph.stream({"question": question}, config or {},
+                                       stream_mode="updates"):
+            for node, update in chunk.items():
+                trajectory.append(node)
+                if isinstance(update, dict):
+                    for key, value in update.items():
+                        # `findings` is an accumulating channel; stream yields
+                        # only this node's contribution, so append rather than
+                        # overwrite or the earlier specialists disappear.
+                        if key == "findings":
+                            state.setdefault("findings", []).extend(value or [])
+                        else:
+                            state[key] = value
+        state["trajectory"] = trajectory
+        state["elapsed"] = time.perf_counter() - t0
+        return state
 
     def run_state(self, question: str, config: dict | None = None) -> dict:
         """Full final state, including every finding and the query it answered.

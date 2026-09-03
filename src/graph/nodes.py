@@ -226,10 +226,28 @@ def after_sql(state: AgentState) -> Literal["sql", "supervisor"]:
 # ── synthesis ─────────────────────────────────────────────────────────────────
 
 def _contexts(state: AgentState) -> list[str]:
-    """Everything the answer could legitimately be grounded in."""
+    """Everything the answer could legitimately be grounded in.
+
+    Retrieved documents are only half of it. On a `both` route the factual core
+    of the answer often comes from the query result, and judging that against
+    the documentation alone rejects it for not appearing somewhere it was never
+    going to appear. The first version of this did exactly that: the critic
+    threw away a correct "aws-neuron/aws-neuron-sdk has 79 open issues" because
+    no AWS document mentions it, and the redraft replaced it with "I cannot
+    answer". Faithfulness rose because the answer no longer claimed anything;
+    answer relevancy collapsed for the same reason.
+    """
     out = []
     for f in state.get("findings", []):
         out.extend(f.get("retrieved_texts") or [])
+
+        if f.get("agent") == "sql" and f.get("data") is not None:
+            data = f["data"]
+            try:
+                rendered = data.to_string(index=False)
+            except AttributeError:
+                rendered = str(data)
+            out.append(f"Query: {f.get('sql') or ''}\nResult:\n{rendered[:1500]}")
     return out
 
 

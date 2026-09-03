@@ -1,215 +1,411 @@
 # scripts/run_evaluation.py
+"""End-to-end evaluation, through the agent rather than around it.
+
+The earlier version called RAGPipeline and SQLPipeline directly. That measured
+retrieval and text-to-SQL, which is worth measuring, but it meant routing,
+dispatch and every loop were invisible to the harness — the `both` route carried
+a correctness bug for the whole life of the project without a single number
+touching it.
+
+This runs whichever implementation is asked for and scores what came out:
+
+    python scripts/run_evaluation.py --version v1        # AWSAgent
+    python scripts/run_evaluation.py --version v2        # graph, loops on
+    python scripts/run_evaluation.py --version v2-flat   # graph, loops off
+
+Report JSON keeps the rag_metrics / sql_metrics / sql_details keys the
+Streamlit dashboard reads, and adds agent_metrics and cost_metrics.
+"""
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import argparse
 import json
+import math
 import sqlite3
-import pandas as pd
+import time
 from datetime import datetime
 
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import pandas as pd
 
-from openai import OpenAI
-from datasets import Dataset
-from ragas import evaluate
-from ragas.metrics._faithfulness import Faithfulness
-from ragas.metrics._answer_relevance import AnswerRelevancy
-from ragas.metrics._context_precision import ContextPrecision
-from ragas.metrics._context_recall import ContextRecall
-from ragas.llms import llm_factory
-from ragas.embeddings import LangchainEmbeddingsWrapper
-from langchain_openai import OpenAIEmbeddings as LCOpenAIEmbeddings
-
-from src.rag.pipeline import RAGPipeline
-from src.sql.pipeline import SQLPipeline
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB = os.path.join(_ROOT, "data", "processed", "issues.db")
 
 
-def evaluate_rag(rag_pipeline: RAGPipeline, rag_samples: list[dict]) -> dict:
-    """Evaluate RAG pipeline using RAGAS metrics."""
-    print(f"\nRunning RAG evaluation on {len(rag_samples)} samples...")
+# ── counting what a run costs ─────────────────────────────────────────────────
 
-    questions = []
-    answers = []
-    contexts = []
-    ground_truths = []
+class CallCounter:
+    """Wraps the LLM and embedding entry points to count calls per question.
 
-    for i, sample in enumerate(rag_samples):
-        print(f"  [{i+1}/{len(rag_samples)}] {sample['question'][:60]}")
-        result = rag_pipeline.run(sample["question"])
+    Agent quality is only half the comparison; a version that is better because
+    it makes three times as many calls should have to say so.
+    """
 
-        questions.append(sample["question"])
-        answers.append(result["answer"])
-        contexts.append(result.get("retrieved_texts") or [""])
-        ground_truths.append(sample["ground_truth"])
+    def __init__(self):
+        self.llm = self.embed = 0
+        self._patches = []
 
-    # Build RAGAS dataset
+    def __enter__(self):
+        from langchain_openai import ChatOpenAI
+        from langchain_openai.embeddings import OpenAIEmbeddings
+
+        for cls, attr, field in ((ChatOpenAI, "invoke", "llm"),
+                                 (OpenAIEmbeddings, "embed_query", "embed")):
+            original = getattr(cls, attr)
+            self._patches.append((cls, attr, original))
+
+            def wrapper(inner_self, *args, _o=original, _f=field, **kwargs):
+                setattr(self, _f, getattr(self, _f) + 1)
+                return _o(inner_self, *args, **kwargs)
+
+            setattr(cls, attr, wrapper)
+        return self
+
+    def __exit__(self, *exc):
+        for cls, attr, original in self._patches:
+            setattr(cls, attr, original)
+
+    def reset(self):
+        self.llm = self.embed = 0
+
+
+# ── the implementations under test ────────────────────────────────────────────
+
+# Which loops each preset switches on. Phase 4 exists to decide this, so it has
+# to be a knob rather than a constant.
+PRESETS = {
+    "v2":        dict(grader=True,  repairer=True,  critic=True),
+    "v2-flat":   dict(grader=False, repairer=False, critic=False),
+    "v2-repair": dict(grader=False, repairer=True,  critic=False),
+    "v2-nograde":dict(grader=False, repairer=True,  critic=True),
+}
+
+
+def build_agent(version: str):
+    if version == "v1":
+        from src.agent.agent import AWSAgent
+        return AWSAgent(), False
+
+    from src.graph.builder import GraphAgent
+    from src.graph.critic import Critic
+    from src.graph.grader import RetrievalGrader
+    from src.graph.repair import SQLRepairer
+
+    on = PRESETS[version]
+    return GraphAgent(
+        grader=RetrievalGrader() if on["grader"] else None,
+        repairer=SQLRepairer() if on["repairer"] else None,
+        critic=Critic() if on["critic"] else None,
+        loops=False,          # presets decide; do not let the facade fill in
+    ), True
+
+
+def run_one(agent, question: str, traced: bool) -> dict:
+    """Normalise both implementations to one shape."""
+    if traced:
+        state = agent.run_traced(question)
+        findings = state.get("findings", [])
+        return {
+            "answer": state.get("answer", ""),
+            "route": state.get("route", "rag"),
+            "data": state.get("data"),
+            "sql": state.get("sql"),
+            "contexts": [t for f in findings for t in (f.get("retrieved_texts") or [])],
+            "agents": [f["agent"] for f in findings],
+            "trajectory": state.get("trajectory", []),
+            "elapsed": state.get("elapsed", 0.0),
+            "findings": findings,
+        }
+
+    t0 = time.perf_counter()
+    out = agent.run(question)
+    return {
+        "answer": out.get("answer", ""),
+        "route": out.get("route", "rag"),
+        "data": out.get("data"),
+        "sql": out.get("sql"),
+        # v1 discards retrieved text, so re-derive it the only way available.
+        "contexts": list(getattr(agent, "_last_contexts", []) or []),
+        "agents": {"rag": ["rag"], "sql": ["sql"], "both": ["rag", "sql"]}.get(
+            out.get("route"), []),
+        "trajectory": [],
+        "elapsed": time.perf_counter() - t0,
+        "findings": [],
+    }
+
+
+def instrument_v1_contexts(agent):
+    """v1 throws retrieved chunks away, but RAGAS needs them.
+
+    Wrap RAGPipeline.run to keep the last set. This changes nothing about what
+    v1 answers — without it v1 simply cannot be scored on context metrics.
+    """
+    original = agent.rag.run
+    agent._last_contexts = []
+
+    def wrapped(query):
+        result = original(query)
+        agent._last_contexts = result.get("retrieved_texts", [])
+        return result
+
+    agent.rag.run = wrapped
+    return agent
+
+
+# ── scoring ───────────────────────────────────────────────────────────────────
+
+def first_value(df):
+    return None if df is None or len(df) == 0 else df.iloc[0, 0]
+
+
+def values_match(got, want) -> bool:
+    """The comparison the original harness used: strings exact, numbers to 5%."""
+    if got is None or want is None:
+        return False
+    if isinstance(want, str):
+        return str(got).strip() == want.strip()
+    try:
+        return abs(float(got) - float(want)) <= max(1, abs(float(want)) * 0.05)
+    except (TypeError, ValueError):
+        return False
+
+
+def score_rag(records: list[dict]) -> dict:
+    """RAGAS over every sample that produced retrieved context."""
+    usable = [r for r in records if r["contexts"] and r["sample"].get("ground_truth")]
+    if not usable:
+        return {k: float("nan") for k in
+                ("faithfulness", "answer_relevancy", "context_precision", "context_recall")}
+
+    from openai import OpenAI
+    from datasets import Dataset
+    from ragas import evaluate
+    from ragas.metrics._faithfulness import Faithfulness
+    from ragas.metrics._answer_relevance import AnswerRelevancy
+    from ragas.metrics._context_precision import ContextPrecision
+    from ragas.metrics._context_recall import ContextRecall
+    from ragas.llms import llm_factory
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    from langchain_openai import OpenAIEmbeddings as LCEmbeddings
+
     dataset = Dataset.from_dict({
-        "question": questions,
-        "answer": answers,
-        "contexts": contexts,
-        "ground_truth": ground_truths,
+        "question":     [r["sample"]["question"] for r in usable],
+        "answer":       [r["answer"] for r in usable],
+        "contexts":     [r["contexts"] for r in usable],
+        "ground_truth": [r["sample"]["ground_truth"] for r in usable],
     })
 
-    # Configure RAGAS LLM and embeddings, inject into each metric
-    openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    llm = llm_factory("gpt-4o-mini", client=openai_client, max_tokens=4096)
-    embeddings = LangchainEmbeddingsWrapper(LCOpenAIEmbeddings(model="text-embedding-3-small"))
+    llm = llm_factory("gpt-4o-mini", client=OpenAI(api_key=os.getenv("OPENAI_API_KEY")),
+                      max_tokens=4096)
+    embeddings = LangchainEmbeddingsWrapper(LCEmbeddings(model="text-embedding-3-small"))
 
-    scores = evaluate(
-        dataset=dataset,
-        metrics=[
-            Faithfulness(llm=llm),
-            AnswerRelevancy(llm=llm, embeddings=embeddings),
-            ContextPrecision(llm=llm),
-            ContextRecall(llm=llm),
-        ],
-    )
-
-    return scores
+    scores = evaluate(dataset=dataset, metrics=[
+        Faithfulness(llm=llm),
+        AnswerRelevancy(llm=llm, embeddings=embeddings),
+        ContextPrecision(llm=llm),
+        ContextRecall(llm=llm),
+    ])
+    return {k: mean_score(scores[k]) for k in
+            ("faithfulness", "answer_relevancy", "context_precision", "context_recall")}
 
 
-def evaluate_sql(sql_pipeline: SQLPipeline, sql_samples: list[dict]) -> pd.DataFrame:
-    """Evaluate SQL pipeline by comparing query results to ground truth."""
-    print(f"\nRunning SQL evaluation on {len(sql_samples)} samples...")
-
-    conn = sqlite3.connect(os.path.join(_PROJECT_ROOT, "data", "processed", "issues.db"))
-    results = []
-
-    for sample in sql_samples:
-        question = sample["question"]
-        ground_truth_sql = sample["ground_truth_sql"]
-        print(f"  Q: {question[:60]}")
-
-        # Run generated SQL
-        result = sql_pipeline.run(question)
-        generated_sql = result.get("sql", "")
-        generated_data = result.get("data")
-
-        # Run ground truth SQL
-        try:
-            gt_data = pd.read_sql(ground_truth_sql, conn)
-        except Exception as e:
-            gt_data = None
-            print(f"    Ground truth SQL failed: {e}")
-
-        # Compare results
-        results_match = False
-        if generated_data is not None and gt_data is not None:
-            try:
-                gen_val = generated_data.iloc[0, 0]
-                gt_val = gt_data.iloc[0, 0]
-
-                # String comparison (e.g. tag names)
-                if isinstance(gt_val, str):
-                    results_match = str(gen_val).strip() == str(gt_val).strip()
-                else:
-                    # Numeric comparison with 5% tolerance
-                    # Accounts for minor SQL generation variations
-                    tolerance = max(1, abs(float(gt_val)) * 0.05)
-                    results_match = abs(float(gen_val) - float(gt_val)) <= tolerance
-            except Exception:
-                results_match = False
-
-        results.append({
-            "question": question,
-            "generated_sql": generated_sql,
-            "ground_truth_sql": ground_truth_sql,
-            "results_match": results_match,
-            "generated_value": generated_data.iloc[0, 0] if generated_data is not None and not generated_data.empty else None,
-            "ground_truth_value": gt_data.iloc[0, 0] if gt_data is not None and not gt_data.empty else None,
-        })
-
-    conn.close()
-    return pd.DataFrame(results)
-
-
-def _mean_score(val) -> float:
+def mean_score(value) -> float:
     """RAGAS 0.4.x returns per-sample lists; take the mean, ignoring NaN/None."""
-    import math
-    if isinstance(val, (list, tuple)):
-        vals = [v for v in val if v is not None and not (isinstance(v, float) and math.isnan(v))]
-        return sum(vals) / len(vals) if vals else float("nan")
-    if val is None:
-        return float("nan")
-    return float(val)
+    if isinstance(value, (list, tuple)):
+        clean = [v for v in value
+                 if v is not None and not (isinstance(v, float) and math.isnan(v))]
+        return sum(clean) / len(clean) if clean else float("nan")
+    return float("nan") if value is None else float(value)
 
 
-def save_report(rag_scores: dict, sql_df: pd.DataFrame):
-    """Save evaluation report to JSON."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_path = os.path.join(_PROJECT_ROOT, "data", "processed", f"eval_report_{timestamp}.json")
+def score_sql(records: list[dict], conn) -> pd.DataFrame:
+    rows = []
+    for r in records:
+        sample = r["sample"]
+        if not sample.get("ground_truth_sql"):
+            continue
+        try:
+            expected = first_value(pd.read_sql(sample["ground_truth_sql"], conn))
+        except Exception as e:
+            print(f"    ground-truth SQL failed: {e}")
+            continue
+        got = first_value(r["data"])
+        rows.append({
+            "question": sample["question"],
+            "type": sample["type"],
+            "adversarial": bool(sample.get("adversarial")),
+            "generated_sql": r["sql"] or "",
+            "ground_truth_sql": sample["ground_truth_sql"],
+            "generated_value": got,
+            "ground_truth_value": expected,
+            "results_match": values_match(got, expected),
+        })
+    return pd.DataFrame(rows)
 
-    # SQL accuracy
-    sql_accuracy = sql_df["results_match"].mean() if not sql_df.empty else 0
 
-    report = {
-        "timestamp": timestamp,
-        "rag_metrics": {
-            "faithfulness": round(_mean_score(rag_scores["faithfulness"]), 3),
-            "answer_relevancy": round(_mean_score(rag_scores["answer_relevancy"]), 3),
-            "context_precision": round(_mean_score(rag_scores["context_precision"]), 3),
-            "context_recall": round(_mean_score(rag_scores["context_recall"]), 3),
-        },
+def score_agent(records: list[dict]) -> dict:
+    """Delegation and the loops — none of which the previous harness could see."""
+    labelled = [r for r in records if r["sample"].get("expected_agents")]
+    exact = order = 0
+    for r in labelled:
+        expected = r["sample"]["expected_agents"]
+        got = r["agents"]
+        if set(got) == set(expected):
+            exact += 1
+            if r["sample"].get("expected_order") != "sequential" or got == expected:
+                order += 1
+
+    loops = {"rag_retry": 0, "sql_repair": 0, "critic_redraft": 0}
+    for r in records:
+        traj = r["trajectory"]
+        loops["rag_retry"] += sum(
+            1 for a, b in zip(traj, traj[1:]) if a == "rag" and b == "rag")
+        loops["sql_repair"] += sum(
+            1 for a, b in zip(traj, traj[1:]) if a == "sql" and b == "sql")
+        loops["critic_redraft"] += sum(
+            1 for a, b in zip(traj, traj[1:]) if a == "critic" and b == "synthesize")
+
+    n = len(labelled) or 1
+    return {
+        "delegation_accuracy": round(exact / n, 3),
+        "order_accuracy": round(order / n, 3),
+        "labelled_samples": len(labelled),
+        "loops_fired": loops,
+    }
+
+
+# ── report ────────────────────────────────────────────────────────────────────
+
+def build_report(version, rag_metrics, sql_df, agent_metrics, records) -> dict:
+    accuracy = sql_df["results_match"].mean() if not sql_df.empty else 0.0
+    adversarial = sql_df[sql_df["adversarial"]] if not sql_df.empty else pd.DataFrame()
+
+    return {
+        "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
+        "version": version,
+        "rag_metrics": {k: (None if math.isnan(v) else round(v, 3))
+                        for k, v in rag_metrics.items()},
         "sql_metrics": {
-            "accuracy": round(float(sql_accuracy), 3),
+            "accuracy": round(float(accuracy), 3),
             "total_queries": len(sql_df),
-            "correct_queries": int(sql_df["results_match"].sum()),
+            "correct_queries": int(sql_df["results_match"].sum()) if not sql_df.empty else 0,
+            "adversarial_accuracy": (round(float(adversarial["results_match"].mean()), 3)
+                                     if not adversarial.empty else None),
+            "adversarial_total": len(adversarial),
+        },
+        "agent_metrics": agent_metrics,
+        "cost_metrics": {
+            "llm_calls_total": sum(r["llm_calls"] for r in records),
+            "llm_calls_per_query": round(
+                sum(r["llm_calls"] for r in records) / max(len(records), 1), 2),
+            "embed_calls_total": sum(r["embed_calls"] for r in records),
+            "seconds_total": round(sum(r["elapsed"] for r in records), 1),
+            "seconds_p50": round(sorted(r["elapsed"] for r in records)[len(records) // 2], 2)
+            if records else 0.0,
         },
         "sql_details": sql_df.to_dict(orient="records"),
     }
 
-    with open(report_path, "w") as f:
-        json.dump(report, f, indent=2, default=str)
-
-    return report, report_path
-
 
 def print_report(report: dict):
-    """Print evaluation report to terminal."""
-    print("\n" + "=" * 60)
-    print("EVALUATION REPORT")
-    print("=" * 60)
+    print("\n" + "=" * 68)
+    print(f"EVALUATION REPORT — {report['version']}")
+    print("=" * 68)
 
-    print("\n--- RAG Metrics ---")
+    print("\n--- RAG (RAGAS) ---")
     for metric, score in report["rag_metrics"].items():
-        if score is None or (isinstance(score, float) and score != score):
-            print(f"  {metric:<22} NaN   (evaluation failed)")
+        if score is None:
+            print(f"  {metric:<22} n/a")
         else:
-            bar = "█" * int(score * 20)
-            print(f"  {metric:<22} {score:.3f}  {bar}")
+            print(f"  {metric:<22} {score:.3f}  {'#' * int(score * 20)}")
 
-    print("\n--- SQL Metrics ---")
     m = report["sql_metrics"]
-    print(f"  Accuracy:    {m['accuracy']:.1%}  ({m['correct_queries']}/{m['total_queries']} correct)")
+    print("\n--- SQL ---")
+    print(f"  accuracy               {m['accuracy']:.1%}  "
+          f"({m['correct_queries']}/{m['total_queries']})")
+    if m["adversarial_total"]:
+        aa = m["adversarial_accuracy"]
+        print(f"  adversarial subset     {aa:.1%}  ({m['adversarial_total']} samples)")
 
-    print("\n--- SQL Details ---")
-    for row in report["sql_details"]:
-        status = "✅" if row["results_match"] else "❌"
-        print(f"  {status} {row['question'][:55]}")
-        if not row["results_match"]:
-            print(f"     Expected: {row['ground_truth_value']}")
-            print(f"     Got:      {row['generated_value']}")
+    a = report["agent_metrics"]
+    print("\n--- Agent ---")
+    print(f"  delegation accuracy    {a['delegation_accuracy']:.1%}  "
+          f"({a['labelled_samples']} labelled)")
+    print(f"  order accuracy         {a['order_accuracy']:.1%}")
+    fired = a["loops_fired"]
+    print(f"  loops fired            retrieval {fired['rag_retry']}  "
+          f"sql repair {fired['sql_repair']}  redraft {fired['critic_redraft']}")
+
+    c = report["cost_metrics"]
+    print("\n--- Cost ---")
+    print(f"  LLM calls              {c['llm_calls_total']} "
+          f"({c['llm_calls_per_query']} per query)")
+    print(f"  wall clock             {c['seconds_total']}s total, "
+          f"{c['seconds_p50']}s p50")
+
+    failures = [r for r in report["sql_details"] if not r["results_match"]]
+    if failures:
+        print("\n--- SQL failures ---")
+        for row in failures:
+            tag = "adv" if row["adversarial"] else row["type"]
+            print(f"  [{tag}] {row['question'][:52]}")
+            print(f"        expected {row['ground_truth_value']}  "
+                  f"got {row['generated_value']}")
 
 
 def main():
-    # Load ground truth
-    with open(os.path.join(_PROJECT_ROOT, "data", "processed", "ground_truth.json")) as f:
-        all_samples = json.load(f)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--version", default="v2",
+                        choices=["v1", "v2", "v2-flat", "v2-repair", "v2-nograde"],
+                        help="v1=AWSAgent; v2=all loops; v2-flat=none; "
+                             "v2-repair=SQL repair only; v2-nograde=repair+critic")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="evaluate only the first N samples")
+    parser.add_argument("--skip-ragas", action="store_true",
+                        help="agent and SQL metrics only; no RAGAS judge calls")
+    args = parser.parse_args()
 
-    rag_samples = [s for s in all_samples if s["type"] == "rag"]
-    sql_samples = [s for s in all_samples if s["type"] == "sql"]
+    with open(os.path.join(_ROOT, "data", "processed", "ground_truth.json")) as f:
+        samples = json.load(f)
+    if args.limit:
+        samples = samples[:args.limit]
 
-    # Initialize pipelines
-    rag = RAGPipeline()
-    sql = SQLPipeline()
+    agent, traced = build_agent(args.version)
+    if not traced:
+        agent = instrument_v1_contexts(agent)
 
-    # Run evaluations
-    rag_scores = evaluate_rag(rag, rag_samples)
-    sql_df = evaluate_sql(sql, sql_samples)
+    print(f"\nRunning {len(samples)} samples through {args.version}...")
+    records = []
+    with CallCounter() as counter:
+        for i, sample in enumerate(samples, 1):
+            print(f"  [{i:>2}/{len(samples)}] {sample['type']:<5} {sample['question'][:58]}")
+            counter.reset()
+            try:
+                result = run_one(agent, sample["question"], traced)
+            except Exception as e:
+                print(f"       failed: {e}")
+                result = {"answer": "", "route": "rag", "data": None, "sql": None,
+                          "contexts": [], "agents": [], "trajectory": [], "elapsed": 0.0}
+            result["sample"] = sample
+            result["llm_calls"], result["embed_calls"] = counter.llm, counter.embed
+            records.append(result)
 
-    # Save and print report
-    report, path = save_report(rag_scores, sql_df)
+    conn = sqlite3.connect(DB)
+    sql_df = score_sql(records, conn)
+    conn.close()
+
+    agent_metrics = score_agent(records)
+    rag_metrics = ({k: float("nan") for k in
+                    ("faithfulness", "answer_relevancy", "context_precision", "context_recall")}
+                   if args.skip_ragas else score_rag(records))
+
+    report = build_report(args.version, rag_metrics, sql_df, agent_metrics, records)
+    path = os.path.join(_ROOT, "data", "processed",
+                        f"eval_report_{report['timestamp']}_{args.version}.json")
+    with open(path, "w") as f:
+        json.dump(report, f, indent=2, default=str)
+
     print_report(report)
     print(f"\nReport saved to: {path}")
 

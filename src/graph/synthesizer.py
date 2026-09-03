@@ -53,7 +53,8 @@ Rules:
 # these to be dropped; this strips them regardless, on the same reasoning as
 # README section 4 — the prompt reduces how often it happens, the code makes it
 # impossible.
-_PLACEHOLDER_CITATION = re.compile(r"\s*\[Source:[^\]]*<[^\]]*\]")
+_PLACEHOLDER_CITATION = re.compile(
+    r"\s*\[Source:\s*(?:[^\]]*<[^\]]*|N/?A\s*\|\s*N/?A\s*)\]", re.IGNORECASE)
 
 
 REVISION_PROMPT = ChatPromptTemplate.from_template("""

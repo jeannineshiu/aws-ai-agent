@@ -41,6 +41,8 @@ The answer:
 Is every substantive claim in the answer supported by the source material?
 
 Judge support, not style or completeness. Specifically:
+- The source material includes query results as well as documents. A figure that
+  appears in a query result is supported, even though no document mentions it.
 - An answer that says the sources do not cover something is grounded. Admitting
   a gap is correct behaviour, not a failure.
 - Ignore citation markers and formatting.
