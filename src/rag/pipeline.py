@@ -57,13 +57,15 @@ class RAGPipeline:
             )
         return "\n\n---\n\n".join(sections)
 
-    def run(self, query: str) -> dict:
-        """Run full RAG pipeline: retrieve → format → generate."""
-        # Retrieve
-        docs = self.retrieve(query)
-        context = self.format_context(docs)
+    def generate(self, query: str, docs: list[Document]) -> dict:
+        """Generate an answer from documents that have already been retrieved.
 
-        # Generate
+        Split out of run() so a caller can inspect the retrieved documents
+        before paying for generation — the corrective-retrieval loop in
+        src/graph/nodes.py grades them first and may re-retrieve instead.
+        run() is unchanged: it retrieves and then calls this.
+        """
+        context = self.format_context(docs)
         prompt = RAG_PROMPT.format_messages(
             context=context,
             question=query,
@@ -87,3 +89,7 @@ class RAGPipeline:
             "retrieved_texts": [doc.page_content for doc in docs],
             "source_count": len(docs),
         }
+
+    def run(self, query: str) -> dict:
+        """Run full RAG pipeline: retrieve → format → generate."""
+        return self.generate(query, self.retrieve(query))

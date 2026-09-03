@@ -131,8 +131,11 @@ aws-ai-agent/
 │   └── graph/                # v2 — LangGraph supervisor multi-agent system
 │       ├── state.py          #   AgentState + accumulating findings channel
 │       ├── supervisor.py     #   Supervisor — structured dispatch + query refinement
-│       ├── synthesizer.py    #   Synthesizer — cross-specialist merge
-│       ├── nodes.py          #   supervisor / rag / sql / synthesize nodes
+│       ├── synthesizer.py    #   Synthesizer — cross-specialist merge + redraft
+│       ├── grader.py         #   RetrievalGrader — relevance check + query rewrite
+│       ├── repair.py         #   SQLRepairer — rewrites failed queries from evidence
+│       ├── critic.py         #   Critic — groundedness gate before the answer ships
+│       ├── nodes.py          #   supervisor / rag / sql / synthesize / critic nodes
 │       └── builder.py        #   StateGraph wiring + GraphAgent facade
 ├── scripts/
 │   ├── fetch_aws_docs.py     # Scrape AWS documentation
@@ -141,7 +144,8 @@ aws-ai-agent/
 │   ├── fetch_github_issues.py
 │   ├── import_stackoverflow.py
 │   ├── run_evaluation.py     # RAGAS + SQL evaluation pipeline
-│   ├── compare_v1_v2.py      # Phase 0 parity check, v1 vs graph
+│   ├── compare_v1_v2.py      # Parity check, v1 vs graph
+│   ├── measure_loops.py      # SQL repair loop — recovery rate vs v1
 │   ├── verify_langgraph_support.py  # LangGraph capability check on core 0.3.x
 │   └── test_agent.py
 ├── tests/

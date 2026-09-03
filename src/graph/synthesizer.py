@@ -56,6 +56,26 @@ Rules:
 _PLACEHOLDER_CITATION = re.compile(r"\s*\[Source:[^\]]*<[^\]]*\]")
 
 
+REVISION_PROMPT = ChatPromptTemplate.from_template("""
+An earlier draft of this answer made claims the sources do not support.
+
+Question: {question}
+
+Source material:
+{context}
+
+The draft:
+{answer}
+
+Unsupported claims: {critique}
+
+Rewrite the answer so that every statement is traceable to the source material.
+Remove or correct the unsupported claims rather than softening them with hedges.
+If removing them leaves the question partly unanswered, say plainly which part
+the sources do not cover. Keep every real [Source: ...] citation.
+""")
+
+
 class Synthesizer:
     def __init__(self, llm=None):
         self.llm = llm or ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=60)
@@ -83,3 +103,23 @@ class Synthesizer:
             f"**From documentation:**\n{rag_finding.get('answer','')}\n\n"
             f"**From data analysis:**\n{sql_finding.get('answer','')}"
         )
+
+    def revise(self, question: str, answer: str, contexts: list[str], critique: str) -> str:
+        """Redraft an answer the critic rejected, constrained to the sources.
+
+        A groundedness failure is a generation failure, not a retrieval one —
+        the evidence was there and the draft went beyond it. So this rewrites
+        from the same context rather than searching again.
+        """
+        try:
+            joined = "\n\n---\n\n".join(c[:1200] for c in contexts)[:8000]
+            response = self.llm.invoke(REVISION_PROMPT.format_messages(
+                question=question, context=joined,
+                answer=answer[:4000], critique=critique or "unspecified",
+            ))
+            text = self.strip_placeholder_citations(response.content or "")
+            if text:
+                return text
+        except Exception:
+            pass
+        return answer
