@@ -124,10 +124,14 @@ pytest tests/ -v
 aws-ai-agent/
 ├── app.py                    # Streamlit app — Chat + Evaluation Dashboard tabs
 ├── src/
-│   ├── agent/agent.py        # AWSAgent — orchestrates router + pipelines
+│   ├── agent/agent.py        # AWSAgent — v1, orchestrates router + pipelines
 │   ├── router/router.py      # QueryRouter — LLM-based intent classification
 │   ├── rag/pipeline.py       # RAGPipeline — retrieve + generate
-│   └── sql/pipeline.py       # SQLPipeline — text-to-SQL + execute + explain
+│   ├── sql/pipeline.py       # SQLPipeline — text-to-SQL + execute + explain
+│   └── graph/                # v2 — LangGraph port (Phase 0: behaviour-identical)
+│       ├── state.py          #   AgentState + accumulating findings channel
+│       ├── nodes.py          #   route / rag / sql / compose nodes
+│       └── builder.py        #   StateGraph wiring + GraphAgent facade
 ├── scripts/
 │   ├── fetch_aws_docs.py     # Scrape AWS documentation
 │   ├── build_chunks.py       # Chunk documents
@@ -135,9 +139,12 @@ aws-ai-agent/
 │   ├── fetch_github_issues.py
 │   ├── import_stackoverflow.py
 │   ├── run_evaluation.py     # RAGAS + SQL evaluation pipeline
+│   ├── compare_v1_v2.py      # Phase 0 parity check, v1 vs graph
+│   ├── verify_langgraph_support.py  # LangGraph capability check on core 0.3.x
 │   └── test_agent.py
 ├── tests/
-│   └── test_pipelines.py     # Unit tests (no API calls)
+│   ├── test_pipelines.py     # Unit tests (no API calls)
+│   └── test_graph.py         # v1/v2 parity + topology (no API calls)
 ├── assets/
 │   ├── architecture.svg      # System architecture diagram
 │   ├── query-flow.svg        # Runtime query lifecycle diagram

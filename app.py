@@ -12,12 +12,21 @@ st.set_page_config(
     layout="wide",
 )
 
+# Which implementation to run. v1 (AWSAgent) stays the default through Phase 0 —
+# the graph is proven equivalent, not yet an improvement, so switching by default
+# would add risk for no gain. Set AGENT_IMPL=graph to exercise the LangGraph port.
+AGENT_IMPL = os.getenv("AGENT_IMPL", "v1").lower()
+
+
 # Initialize agent (cached so it only loads once)
 @st.cache_resource
-def load_agent():
+def load_agent(impl: str):
+    if impl == "graph":
+        from src.graph.builder import GraphAgent
+        return GraphAgent()
     return AWSAgent()
 
-agent = load_agent()
+agent = load_agent(AGENT_IMPL)
 
 # --- Sidebar ---
 with st.sidebar:
