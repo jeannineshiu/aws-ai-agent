@@ -325,16 +325,21 @@ def make_critic_node(critic=None, max_revisions: int = MAX_REVISIONS):
         revisions = state.get("revisions", 0)
         contexts = _contexts(state)
 
+        # No update on the skip path, a verdict on the others. The difference is
+        # what lets a caller tell "the answer was checked and passed" from "no
+        # check happened" - which, before Phase 3 put the trajectory in front of
+        # a user, nothing had ever needed to distinguish.
         if critic is None or not contexts or revisions >= max_revisions:
             return Command(goto="remember")
 
         verdict = critic.check(_question(state), state.get("answer", ""), contexts)
         if verdict.grounded:
-            return Command(goto="remember")
+            return Command(goto="remember", update={"grounded": True})
 
         print(f"  -> Critic rejected: {verdict.unsupported[:64]!r}")
         return Command(goto="synthesize", update={
             "revisions": revisions + 1,
+            "grounded": False,
             "critique": verdict.unsupported or "claims not supported by the sources",
         })
 

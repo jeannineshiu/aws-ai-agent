@@ -2,6 +2,7 @@
 import os
 import json
 import glob
+import uuid
 import streamlit as st
 from src.agent.agent import AWSAgent
 
@@ -12,10 +13,11 @@ st.set_page_config(
     layout="wide",
 )
 
-# Which implementation to run. v1 (AWSAgent) stays the default through Phase 0 —
-# the graph is proven equivalent, not yet an improvement, so switching by default
-# would add risk for no gain. Set AGENT_IMPL=graph to exercise the LangGraph port.
-AGENT_IMPL = os.getenv("AGENT_IMPL", "v1").lower()
+# Which implementation to run. The graph is the default from Phase 3: the
+# evaluation says it answers better (relevancy 0.487 -> 0.724, adversarial SQL
+# 60% -> 100%), and it is the only one of the two that can hold a conversation.
+# Set AGENT_IMPL=v1 to get the linear pipeline back for comparison.
+AGENT_IMPL = os.getenv("AGENT_IMPL", "graph").lower()
 
 
 # Initialize agent (cached so it only loads once)
@@ -23,10 +25,20 @@ AGENT_IMPL = os.getenv("AGENT_IMPL", "v1").lower()
 def load_agent(impl: str):
     if impl == "graph":
         from src.graph.builder import GraphAgent
-        return GraphAgent()
+        # memory=True compiles a checkpointer, which is what makes a follow-up
+        # question a follow-up rather than a fresh one.
+        return GraphAgent(memory=True)
     return AWSAgent()
 
 agent = load_agent(AGENT_IMPL)
+IS_GRAPH = AGENT_IMPL == "graph"
+
+if IS_GRAPH:
+    from src.graph.builder import project
+    from src.graph.narrate import describe
+
+
+
 
 # --- Sidebar ---
 with st.sidebar:
@@ -60,7 +72,15 @@ with st.sidebar:
                 st.session_state.selected_question = q
 
     st.divider()
-    st.caption("Built with LangChain · ChromaDB · OpenAI · SQLite")
+    if IS_GRAPH and st.button("🔄 New conversation", width="stretch"):
+        # A thread is a conversation. Dropping the transcript without dropping
+        # the thread would leave the agent resolving "it" against turns the
+        # user can no longer see.
+        st.session_state.messages = []
+        st.session_state.pop("thread_id", None)
+        st.rerun()
+
+    st.caption("Built with LangGraph · ChromaDB · OpenAI · SQLite")
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -77,6 +97,11 @@ with tab_chat:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+    # The agent is @st.cache_resource, so one checkpointer is shared by every
+    # browser session. The thread id is what keeps those conversations apart.
+    if IS_GRAPH and "thread_id" not in st.session_state:
+        st.session_state.thread_id = uuid.uuid4().hex
+
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -89,6 +114,10 @@ with tab_chat:
                 with st.expander(f"View sources ({len(msg['citations'])})"):
                     for c in msg["citations"]:
                         st.markdown(f"- [{c['title']}]({c['url']}) — `{c['service']}`")
+            if msg.get("steps"):
+                with st.expander(f"How this was answered ({len(msg['steps'])} steps)"):
+                    for line in msg["steps"]:
+                        st.markdown(f"- {line}")
 
     if "selected_question" in st.session_state:
         question = st.session_state.pop("selected_question")
@@ -106,17 +135,37 @@ with tab_chat:
         st.session_state.messages.append({"role": "user", "content": question})
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    result = agent.run(question)
-                except Exception as e:
-                    st.error(f"Error: {e}")
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": f"Error: {e}",
-                        "data": None, "sql": None, "citations": [],
-                    })
-                    st.stop()
+            steps = []
+            try:
+                if IS_GRAPH:
+                    thread_id = st.session_state.thread_id
+                    # Narrate the turn as it happens. The interesting decisions
+                    # - who was dispatched, what was retried, what was sent back
+                    # to be redrafted - are all over before the answer exists,
+                    # and a spinner shows none of them.
+                    with st.status("Working…", expanded=True) as status:
+                        for node, update in agent.stream_turn(question,
+                                                              thread_id=thread_id):
+                            line = describe(node, update, question)
+                            if line:
+                                steps.append(line)
+                                st.markdown(f"- {line}")
+                        status.update(label=f"Answered in {len(steps)} steps",
+                                      state="complete", expanded=False)
+                    # The turn was streamed for the display above; the answer
+                    # itself comes from the checkpointer, already assembled.
+                    result = project(question, agent.state_of(thread_id))
+                else:
+                    with st.spinner("Thinking..."):
+                        result = agent.run(question)
+            except Exception as e:
+                st.error(f"Error: {e}")
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Error: {e}",
+                    "data": None, "sql": None, "citations": [], "steps": steps,
+                })
+                st.stop()
 
             route_colors = {"rag": "🟢", "sql": "🔵", "both": "🟣"}
             route_emoji = route_colors.get(result["route"], "⚪")
@@ -132,6 +181,10 @@ with tab_chat:
                 with st.expander(f"View sources ({len(result['citations'])})"):
                     for c in result["citations"]:
                         st.markdown(f"- [{c['title']}]({c['url']}) — `{c['service']}`")
+            if steps:
+                with st.expander(f"How this was answered ({len(steps)} steps)"):
+                    for line in steps:
+                        st.markdown(f"- {line}")
 
         st.session_state.messages.append({
             "role": "assistant",
@@ -139,6 +192,7 @@ with tab_chat:
             "data": result.get("data"),
             "sql": result.get("sql"),
             "citations": result.get("citations", []),
+            "steps": steps,
         })
 
 

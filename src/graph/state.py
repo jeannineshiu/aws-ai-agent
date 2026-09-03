@@ -86,6 +86,7 @@ class AgentState(TypedDict, total=False):
     # critic loop
     revisions: int
     critique: str | None     # claims the critic found unsupported
+    grounded: bool | None    # the critic's verdict, or None when it never ran
 
     # composed output — mirrors the dict AWSAgent.run() returns
     route: str               # "rag" | "sql" | "both", derived from who actually ran

@@ -18,6 +18,7 @@ from src.agent.agent import AWSAgent
 from src.graph.builder import GraphAgent, build_graph
 from src.graph.critic import Verdict
 from src.graph.grader import Grade
+from src.graph.narrate import describe
 from src.graph.supervisor import ContextualPlan, Plan
 from src.router.router import RouteType
 
@@ -717,3 +718,73 @@ def test_memory_is_off_by_default():
     agent, *_ = make_graph(["rag"])
     assert agent.memory is False
     assert agent.run("q")["route"] == "rag"
+
+
+# ── narration ─────────────────────────────────────────────────────────────────
+
+def narrate(agent, question, **kw):
+    """Every line the app would print for one turn, in order."""
+    return [line for node, update in agent.stream_turn(question, **kw)
+            if (line := describe(node, update, question))]
+
+
+def test_a_streamed_turn_says_who_was_dispatched():
+    agent, *_ = make_graph(["rag", "sql"], mode="parallel")
+    assert "Dispatching documentation + data" in narrate(agent, "q")
+
+
+def test_narration_shows_the_question_the_user_never_typed():
+    """The second half of a sequential plan asks something the supervisor wrote."""
+    agent, *_ = make_graph(["sql", "rag"], mode="sequential",
+                           refined="What is Amazon SageMaker?")
+    lines = narrate(agent, "Which service has the most questions and what does it do?")
+    assert any("Asking documentation: *What is Amazon SageMaker?*" in l for l in lines)
+
+
+def test_narration_shows_what_a_follow_up_was_taken_to_mean():
+    """A wrong resolution is the failure mode of multi-turn. The user cannot
+    correct one they were never shown."""
+    agent, *_ = make_memory_graph(["rag"], standalone="How much does Bedrock cost?")
+    agent.run("What is Bedrock?", thread_id="t1")
+    lines = narrate(agent, "How much does it cost?", thread_id="t1")
+    assert lines[0].startswith("Read as *How much does Bedrock cost?* — Dispatching")
+
+
+def test_narration_shows_the_repair():
+    agent, *_ = make_graph(["sql"], sql=FakeSQL([[], [1]]), repairer=FakeRepairer())
+    assert any("repairing it" in l for l in narrate(agent, "q"))
+
+
+def test_parked_wakeups_and_bookkeeping_are_not_narrated():
+    """The supervisor is woken once per specialist and the last node files the
+    turn. Neither is a step the user can make sense of."""
+    assert describe("supervisor", None, "q") is None
+    assert describe("supervisor", {"passes": 3, "awaiting": []}, "q") is None
+    assert describe("remember", {"history": [{"question": "q", "answer": "a"}]}, "q") is None
+
+
+def test_every_narrated_turn_ends_with_the_answer_being_composed():
+    for agents, mode in [(["rag"], "parallel"), (["sql"], "parallel"),
+                         (["rag", "sql"], "parallel"), (["sql", "rag"], "sequential")]:
+        agent, *_ = make_graph(agents, mode=mode)
+        lines = narrate(agent, "q")
+        assert lines[-1] in ("Composed the answer", "Merged both answers"), (agents, lines)
+
+
+def test_a_real_check_is_narrated():
+    """The other half of the previous test: when the critic does run, say so."""
+    sup, rag, sql, syn = FakeSupervisor(["rag"]), FakeRAG(), FakeSQL(), FakeSynthesizer()
+    agent = GraphAgent(sup, rag, sql, syn, critic=FakeCritic([True]), loops=False)
+    assert "Checked the answer against its sources" in narrate(agent, "q")
+
+
+def test_streaming_a_turn_leaves_the_same_answer_behind():
+    """The app streams the turn for its display, then reads the result from the
+    checkpointer instead of reassembling it from the updates it just printed."""
+    from src.graph.builder import project
+
+    streamed, *_ = make_memory_graph(["rag", "sql"])
+    for _ in streamed.stream_turn("q", thread_id="t1"):
+        pass
+    invoked, *_ = make_memory_graph(["rag", "sql"])
+    assert project("q", streamed.state_of("t1")) == invoked.run("q", thread_id="t2")

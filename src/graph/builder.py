@@ -171,7 +171,7 @@ class GraphAgent:
             "question": question,
             "findings": None,
             "resolved_question": "",
-            "passes": 0, "revisions": 0, "critique": None,
+            "passes": 0, "revisions": 0, "critique": None, "grounded": None,
             "plan": [], "awaiting": [], "agent_query": "", "mode": "parallel",
             "rag_attempts": 0, "rag_query": None, "rag_missing": "",
             "sql_attempts": 0, "sql_error": None, "last_sql": None,
@@ -185,6 +185,21 @@ class GraphAgent:
                 **(config or {}).get("configurable", {}), "thread_id": thread_id}}
         return config or {}
 
+    def stream_turn(self, question: str, config: dict | None = None,
+                    thread_id: str | None = None):
+        """Yield `(node, update)` as each node finishes.
+
+        The dispatch decision, the repair and the redraft all happen before
+        there is an answer to show. `run()` waits and hides them; a caller that
+        wants to say what the agent is doing while it does it iterates this
+        instead.
+        """
+        for chunk in self.graph.stream(self._turn_input(question),
+                                       self._config(config, thread_id),
+                                       stream_mode="updates"):
+            for node, update in chunk.items():
+                yield node, update
+
     def run_traced(self, question: str, config: dict | None = None,
                    thread_id: str | None = None) -> dict:
         """Final state plus the sequence of nodes that produced it.
@@ -197,23 +212,29 @@ class GraphAgent:
 
         trajectory, state = [], {}
         t0 = time.perf_counter()
-        for chunk in self.graph.stream(self._turn_input(question),
-                                       self._config(config, thread_id),
-                                       stream_mode="updates"):
-            for node, update in chunk.items():
-                trajectory.append(node)
-                if isinstance(update, dict):
-                    for key, value in update.items():
-                        # `findings` is an accumulating channel; stream yields
-                        # only this node's contribution, so append rather than
-                        # overwrite or the earlier specialists disappear.
-                        if key == "findings":
-                            state.setdefault("findings", []).extend(value or [])
-                        else:
-                            state[key] = value
+        for node, update in self.stream_turn(question, config, thread_id):
+            trajectory.append(node)
+            if isinstance(update, dict):
+                for key, value in update.items():
+                    # `findings` is an accumulating channel; stream yields
+                    # only this node's contribution, so append rather than
+                    # overwrite or the earlier specialists disappear.
+                    if key == "findings":
+                        state.setdefault("findings", []).extend(value or [])
+                    else:
+                        state[key] = value
         state["trajectory"] = trajectory
         state["elapsed"] = time.perf_counter() - t0
         return state
+
+    def state_of(self, thread_id: str) -> dict:
+        """The stored state of a thread — what a streamed turn left behind.
+
+        A caller that streamed the turn for its own display does not need to
+        reassemble the result from the updates it printed; the checkpointer
+        already holds it.
+        """
+        return self.graph.get_state(self._config(None, thread_id)).values
 
     def run_state(self, question: str, config: dict | None = None,
                   thread_id: str | None = None) -> dict:
@@ -228,12 +249,20 @@ class GraphAgent:
 
     def run(self, question: str, config: dict | None = None,
             thread_id: str | None = None) -> dict:
-        final = self.run_state(question, config, thread_id)
-        return {
-            "question": question,
-            "route": final.get("route", "rag"),
-            "answer": final.get("answer", ""),
-            "citations": final.get("citations", []),
-            "data": final.get("data"),
-            "sql": final.get("sql"),
-        }
+        return project(question, self.run_state(question, config, thread_id))
+
+
+def project(question: str, final: dict) -> dict:
+    """The graph's state, in the dict shape AWSAgent.run() returns.
+
+    Kept out of the class because a caller that streamed the turn itself has a
+    final state too, and should not have to rebuild this by hand.
+    """
+    return {
+        "question": question,
+        "route": final.get("route", "rag"),
+        "answer": final.get("answer", ""),
+        "citations": final.get("citations", []),
+        "data": final.get("data"),
+        "sql": final.get("sql"),
+    }
