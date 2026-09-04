@@ -1,168 +1,242 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1040" viewBox="0 0 1180 1040" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="1160" viewBox="0 0 1180 1160" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
 
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748B"/>
     </marker>
-    <marker id="aErr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#DC2626"/>
+    <marker id="aL" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94A3B8"/>
     </marker>
-    <marker id="aDash" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4F46E5"/>
+    <marker id="aR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#DC2626"/>
     </marker>
   </defs>
 
-  <rect width="1180" height="1040" fill="#FFFFFF"/>
+  <rect width="1180" height="1160" fill="#FFFFFF"/>
 
-  <text x="40" y="44" font-size="19" font-weight="700" fill="#0F1B2A">Query Lifecycle — from question to rendered answer</text>
-  <text x="40" y="66" font-size="11.5" fill="#7A8A9A">One routing decision, two independent execution paths, and two deterministic exits that never reach the LLM.</text>
+  <text x="40" y="44" font-size="19" font-weight="700" fill="#0F1B2A">Turn Lifecycle — one question through the supervisor graph</text>
+  <text x="40" y="66" font-size="11.5" fill="#7A8A9A">One plan decides who runs and what each one is asked. Two specialists can work at once. Three loops, each with a ceiling — and one place where the graph stops and asks a person.</text>
 
-  <!-- ===== cost panel ===== -->
-  <rect x="830" y="96" width="310" height="196" rx="9" fill="#F8FAFC" stroke="#E2E8EE"/>
-  <text x="850" y="122" font-size="11.5" font-weight="700" fill="#475569">Model calls after routing</text>
-  <path d="M 850 134 L 1120 134" stroke="#E2E8EE"/>
-  <text x="850" y="156" font-size="11" font-weight="700" fill="#0F766E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">rag</text>
-  <text x="920" y="156" font-size="10.5" fill="#5B6B7C">1 embedding + 1 chat completion</text>
-  <text x="850" y="182" font-size="11" font-weight="700" fill="#B45309" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">sql</text>
-  <text x="920" y="182" font-size="10.5" fill="#5B6B7C">2 chat completions</text>
-  <text x="850" y="208" font-size="11" font-weight="700" fill="#4F46E5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">both</text>
-  <text x="920" y="208" font-size="10.5" fill="#5B6B7C">1 embedding + 3 chat completions</text>
-  <path d="M 850 224 L 1120 224" stroke="#E2E8EE"/>
-  <text x="850" y="246" font-size="10.5" fill="#8B98A5">Every request adds 1 router call (~10 tokens).</text>
-  <text x="850" y="264" font-size="10.5" fill="#8B98A5">Per-call timeouts: 30 s embeddings, 60 s chat —</text>
-  <text x="850" y="280" font-size="10.5" fill="#8B98A5">never a single global budget for the whole route.</text>
+  <!-- ══════════ ENTRY ══════════ -->
+  <rect x="245" y="94" width="380" height="46" rx="7" fill="#FFFFFF" stroke="#1E2B3A" stroke-width="1.4"/>
+  <text x="435" y="114" font-size="12.5" font-weight="600" fill="#1E2B3A" text-anchor="middle">User question</text>
+  <text x="435" y="131" font-size="10" fill="#8B98A5" text-anchor="middle">Streamlit chat · sidebar example · evaluation harness</text>
 
-  <!-- ===== entry ===== -->
-  <rect x="410" y="96" width="360" height="44" rx="22" fill="#1E2B3A"/>
-  <text x="590" y="123" font-size="12.5" font-weight="600" fill="#FFFFFF" text-anchor="middle">User question — Streamlit chat or CLI</text>
+  <path d="M 435 140 L 435 166" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
 
-  <path d="M 590 140 L 590 158" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="145" y="172" width="580" height="70" rx="8" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="166" y="194" font-size="12" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">GraphAgent.stream_turn(question, thread_id)</text>
+  <text x="166" y="214" font-size="10.5" fill="#5B6B7C">_turn_input() clears every per-turn channel — findings, both budgets, the route,</text>
+  <text x="166" y="230" font-size="10.5" fill="#5B6B7C">any parked query. history is the one channel deliberately left to carry over.</text>
 
-  <rect x="430" y="164" width="320" height="48" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <text x="590" y="185" font-size="12" font-weight="600" fill="#1E2B3A" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">AWSAgent.run(question)</text>
-  <text x="590" y="201" font-size="10" fill="#8B98A5" text-anchor="middle">cached singleton — router and both pipelines already warm</text>
+  <path d="M 435 242 L 435 268" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
 
-  <path d="M 590 212 L 590 230" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <!-- ══════════ SUPERVISOR ══════════ -->
+  <rect x="105" y="274" width="660" height="104" rx="8" fill="#EEF2FF" stroke="#4F46E5" stroke-width="1.6"/>
+  <text x="126" y="298" font-size="14" font-weight="700" fill="#3730A3">supervisor · first pass</text>
+  <text x="744" y="297" font-size="9.5" fill="#6366F1" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Supervisor.plan()</text>
+  <text x="126" y="320" font-size="10.5" fill="#3F3F8A">One structured call returns tasks: [{agent, query}] and a mode. On a follow-up the</text>
+  <text x="126" y="336" font-size="10.5" fill="#3F3F8A">same call also rewrites the question to stand on its own, from the last four turns.</text>
+  <text x="126" y="356" font-size="10" fill="#6D6DA8">Nothing usable back from the model → rag alone, on the whole question. It says what it</text>
+  <text x="126" y="370" font-size="10" fill="#6D6DA8">does not know; a guessed query does not.</text>
 
-  <rect x="410" y="236" width="360" height="56" rx="7" fill="#EEF2FF" stroke="#4F46E5" stroke-width="1.6"/>
-  <text x="590" y="259" font-size="12.5" font-weight="700" fill="#3730A3" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">QueryRouter.route(question)</text>
-  <text x="590" y="277" font-size="10" fill="#6D6DA8" text-anchor="middle">gpt-4o-mini returns a single word · anything unexpected falls back to rag</text>
+  <!-- split -->
+  <path d="M 435 378 L 435 396" stroke="#64748B" stroke-width="1.6" fill="none"/>
+  <path d="M 240 396 L 630 396" stroke="#64748B" stroke-width="1.6" fill="none"/>
+  <path d="M 240 396 L 240 418" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <path d="M 630 396 L 630 418" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
 
-  <path d="M 590 292 L 590 310" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <!-- ══════════ RAG LANE ══════════ -->
+  <rect x="40" y="424" width="390" height="356" rx="10" fill="#F4FAF9" stroke="#A7C7C2"/>
+  <text x="58" y="446" font-size="10.5" font-weight="700" fill="#0B5C55" letter-spacing="1.2">DOCUMENTATION SPECIALIST — rag</text>
 
-  <!-- decision -->
-  <path d="M 590 314 L 654 348 L 590 382 L 526 348 Z" fill="#FFFFFF" stroke="#4F46E5" stroke-width="1.6"/>
-  <text x="590" y="352" font-size="11.5" font-weight="700" fill="#3730A3" text-anchor="middle">route ?</text>
+  <rect x="58" y="458" width="354" height="50" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="76" y="478" font-size="11.5" font-weight="600" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">retrieve(its half of the question)</text>
+  <text x="76" y="496" font-size="10" fill="#8B98A5">embed, then the 4 nearest chunks from Chroma</text>
 
-  <path d="M 526 348 L 250 348 L 250 424" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
-  <path d="M 654 348 L 930 348 L 930 424" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
-  <path d="M 590 382 L 590 424" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
-  <text x="392" y="341" font-size="11" font-weight="700" fill="#0F766E" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">rag</text>
-  <text x="792" y="341" font-size="11" font-weight="700" fill="#B45309" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">sql</text>
-  <text x="602" y="406" font-size="11" font-weight="700" fill="#4F46E5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">both</text>
+  <path d="M 235 508 L 235 522" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
 
-  <!-- ===== column headers ===== -->
-  <rect x="90" y="430" width="320" height="34" rx="6" fill="#0F766E"/>
-  <text x="106" y="452" font-size="11.5" font-weight="700" fill="#FFFFFF" letter-spacing="0.6">RAG PATH — documentation</text>
-  <rect x="470" y="430" width="240" height="34" rx="6" fill="#4F46E5"/>
-  <text x="486" y="452" font-size="11.5" font-weight="700" fill="#FFFFFF" letter-spacing="0.6">BOTH — run in sequence</text>
-  <rect x="770" y="430" width="320" height="34" rx="6" fill="#B45309"/>
-  <text x="786" y="452" font-size="11.5" font-weight="700" fill="#FFFFFF" letter-spacing="0.6">SQL PATH — structured data</text>
+  <rect x="58" y="528" width="354" height="62" rx="7" fill="#FFFFFF" stroke="#CBD5E1" stroke-dasharray="4 3"/>
+  <text x="76" y="548" font-size="11.5" font-weight="600" fill="#1E2B3A">grade what came back</text>
+  <text x="396" y="547" font-size="9" font-weight="700" fill="#94A3B8" text-anchor="end">OFF BY DEFAULT</text>
+  <text x="76" y="566" font-size="10" fill="#5B6B7C">insufficient → rewrite the search query and retry</text>
+  <text x="76" y="581" font-size="10" fill="#8B98A5">≤ 2 retrievals. The rewrite is a search term, not a new question.</text>
 
-  <!-- ===== RAG column ===== -->
-  <rect x="90" y="482" width="320" height="52" rx="7" fill="#F0FAF8" stroke="#BFE0DA"/>
-  <text x="110" y="504" font-size="11.5" font-weight="600" fill="#0B5C55" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">retrieve(query)</text>
-  <text x="110" y="521" font-size="10" fill="#5B6B7C">embed the question, take the 4 nearest chunks</text>
+  <path d="M 58 559 L 44 559 L 44 483 L 58 483" stroke="#94A3B8" stroke-width="1.3" fill="none" marker-end="url(#aL)" stroke-dasharray="4 3"/>
 
-  <path d="M 250 534 L 250 544" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
-  <rect x="90" y="550" width="320" height="52" rx="7" fill="#F0FAF8" stroke="#BFE0DA"/>
-  <text x="110" y="572" font-size="11.5" font-weight="600" fill="#0B5C55" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">format_context(docs)</text>
-  <text x="110" y="589" font-size="10" fill="#5B6B7C">stitch title, service and URL onto every chunk</text>
+  <path d="M 235 590 L 235 604" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
 
-  <path d="M 250 602 L 250 612" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
-  <rect x="90" y="618" width="320" height="52" rx="7" fill="#F0FAF8" stroke="#BFE0DA"/>
-  <text x="110" y="640" font-size="11.5" font-weight="600" fill="#0B5C55" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">llm.invoke(RAG_PROMPT)</text>
-  <text x="110" y="657" font-size="10" fill="#5B6B7C">answer only from context, otherwise say so</text>
+  <rect x="58" y="610" width="354" height="62" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="76" y="630" font-size="11.5" font-weight="600" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">generate(question, docs)</text>
+  <text x="76" y="648" font-size="10" fill="#5B6B7C">answers from the context only, or says it cannot</text>
+  <text x="76" y="663" font-size="10" fill="#8B98A5">cites every chunk: [Source: title | service]</text>
 
-  <path d="M 250 670 L 250 680" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
-  <rect x="90" y="686" width="320" height="52" rx="7" fill="#0F766E"/>
-  <text x="110" y="708" font-size="11.5" font-weight="700" fill="#FFFFFF">answer + citations[4]</text>
-  <text x="110" y="725" font-size="10" fill="#A7D8D0">title · service · source URL per chunk</text>
+  <path d="M 235 672 L 235 686" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
 
-  <!-- ===== BOTH column ===== -->
-  <rect x="470" y="478" width="240" height="76" rx="7" fill="#F5F6FF" stroke="#C7CCFA"/>
-  <text x="490" y="500" font-size="11" fill="#3730A3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">1 · rag.run(question)</text>
-  <text x="490" y="520" font-size="11" fill="#3730A3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">2 · sql.run(question)</text>
-  <text x="490" y="542" font-size="10" fill="#7A7AB8">sequential, then concatenated</text>
+  <rect x="58" y="692" width="354" height="66" rx="7" fill="#F0FAF8" stroke="#0F766E" stroke-width="1.3"/>
+  <text x="76" y="712" font-size="11.5" font-weight="700" fill="#0B5C55">finding</text>
+  <text x="76" y="730" font-size="10" fill="#5B6B7C">agent · the query it actually answered · answer</text>
+  <text x="76" y="745" font-size="10" fill="#5B6B7C">citations[] · retrieved_texts[] (kept for the critic and RAGAS)</text>
 
-  <path d="M 470 508 L 416 508" stroke="#4F46E5" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#aDash)"/>
-  <path d="M 710 508 L 764 508" stroke="#4F46E5" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#aDash)"/>
+  <!-- ══════════ SQL LANE ══════════ -->
+  <rect x="450" y="424" width="390" height="356" rx="10" fill="#FDFAF5" stroke="#E4C49A"/>
+  <text x="468" y="446" font-size="10.5" font-weight="700" fill="#92400E" letter-spacing="1.2">DATA SPECIALIST — sql</text>
 
-  <!-- ===== SQL column ===== -->
-  <rect x="770" y="482" width="320" height="52" rx="7" fill="#FDF7EE" stroke="#EEDCC2"/>
-  <text x="790" y="504" font-size="11.5" font-weight="600" fill="#92400E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">generate_sql(question)</text>
-  <text x="790" y="521" font-size="10" fill="#5B6B7C">schema in the prompt · markdown fences stripped</text>
+  <rect x="468" y="458" width="330" height="50" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="486" y="478" font-size="11" font-weight="600" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">generate_sql(its own half)</text>
+  <text x="486" y="496" font-size="10" fill="#8B98A5">schema in the prompt · never the body column · LIMIT 50</text>
 
-  <path d="M 930 534 L 930 544" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
-  <rect x="770" y="550" width="320" height="52" rx="7" fill="#FFF7ED" stroke="#EA580C" stroke-width="1.6"/>
-  <text x="790" y="572" font-size="11.5" font-weight="700" fill="#9A3412" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">validate_sql(sql)</text>
-  <text x="790" y="589" font-size="10" fill="#5B6B7C">SELECT-only · word-boundary keyword regex</text>
-  <rect x="1004" y="556" width="76" height="17" rx="8.5" fill="#FDEBD9"/>
-  <text x="1042" y="568" font-size="8.5" font-weight="700" fill="#9A3412" text-anchor="middle" letter-spacing="0.6">GUARDRAIL</text>
+  <path d="M 633 508 L 633 520" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
 
-  <path d="M 930 602 L 930 612" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
-  <rect x="770" y="618" width="320" height="52" rx="7" fill="#FFF7ED" stroke="#EA580C" stroke-width="1.6"/>
-  <text x="790" y="640" font-size="11.5" font-weight="700" fill="#9A3412" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">execute_sql(sql)</text>
-  <text x="790" y="657" font-size="10" fill="#5B6B7C">pandas.read_sql inside try / except</text>
-  <rect x="1004" y="624" width="76" height="17" rx="8.5" fill="#FDEBD9"/>
-  <text x="1042" y="636" font-size="8.5" font-weight="700" fill="#9A3412" text-anchor="middle" letter-spacing="0.6">GUARDRAIL</text>
+  <rect x="468" y="526" width="330" height="56" rx="7" fill="#FFFFFF" stroke="#B45309" stroke-width="1.3"/>
+  <text x="486" y="546" font-size="11" font-weight="600" fill="#92400E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">review(sql) → allow|confirm|reject</text>
+  <text x="486" y="564" font-size="10" fill="#5B6B7C">literals and comments stripped first, then one statement judged</text>
+  <text x="486" y="577" font-size="10" fill="#8B98A5">reject goes back to the repair loop, never to a person</text>
 
-  <path d="M 930 670 L 930 680" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
-  <rect x="770" y="686" width="320" height="52" rx="7" fill="#FDF7EE" stroke="#EEDCC2"/>
-  <text x="790" y="708" font-size="11.5" font-weight="600" fill="#92400E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">explain_results(question, df)</text>
-  <text x="790" y="725" font-size="10" fill="#5B6B7C">drop body · head(20) · cap 4 000 chars · then LLM</text>
+  <path d="M 633 582 L 633 594" stroke="#DC2626" stroke-width="1.5" marker-end="url(#aR)"/>
 
-  <path d="M 930 738 L 930 748" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
-  <rect x="770" y="754" width="320" height="52" rx="7" fill="#B45309"/>
-  <text x="790" y="776" font-size="11.5" font-weight="700" fill="#FFFFFF">answer + sql + DataFrame</text>
-  <text x="790" y="793" font-size="10" fill="#F3D6B0">query text and rows both surfaced to the user</text>
+  <rect x="468" y="600" width="330" height="58" rx="7" fill="#FEF3F2" stroke="#DC2626" stroke-width="1.3"/>
+  <text x="486" y="620" font-size="11.5" font-weight="700" fill="#991B1B">interrupt() — the turn stops</text>
+  <text x="782" y="619" font-size="9" font-weight="700" fill="#DC2626" text-anchor="end">HUMAN</text>
+  <text x="486" y="638" font-size="10" fill="#7F5252">only on a confirm verdict, or a query the repairer wrote</text>
+  <text x="486" y="651" font-size="10" fill="#B08585">Run it → exactly what is shown executes, or answer without it</text>
 
-  <!-- ===== early return ===== -->
-  <rect x="440" y="690" width="310" height="80" rx="7" fill="#FEF2F2" stroke="#DC2626" stroke-width="1.5" stroke-dasharray="6 4"/>
-  <text x="460" y="714" font-size="11.5" font-weight="700" fill="#991B1B">Early return — no further model calls</text>
-  <text x="460" y="734" font-size="10" fill="#B14A4A">rejected → "Could not execute query: {reason}"</text>
-  <text x="460" y="750" font-size="10" fill="#B14A4A">raised → "SQL execution failed: {e}"</text>
-  <text x="460" y="764" font-size="9.5" fill="#C98080">data stays None, so the UI renders no table</text>
+  <path d="M 633 658 L 633 670" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
 
-  <path d="M 770 576 L 760 576 L 760 706 L 754 706" stroke="#DC2626" stroke-width="1.4" fill="none" marker-end="url(#aErr)"/>
-  <path d="M 770 644 L 766 644 L 766 740 L 754 740" stroke="#DC2626" stroke-width="1.4" fill="none" marker-end="url(#aErr)"/>
-  <text x="750" y="568" font-size="9.5" font-weight="600" fill="#DC2626" text-anchor="end">invalid</text>
-  <text x="750" y="636" font-size="9.5" font-weight="600" fill="#DC2626" text-anchor="end">exception</text>
+  <rect x="468" y="676" width="330" height="52" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="486" y="696" font-size="11" font-weight="600" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">execute_sql → looks_empty?</text>
+  <text x="486" y="714" font-size="10" fill="#5B6B7C">an error, or a COUNT of zero → repair (≤ 2 attempts)</text>
 
-  <!-- ===== collector ===== -->
-  <path d="M 250 738 L 250 846" stroke="#64748B" stroke-width="1.6" fill="none"/>
-  <path d="M 930 806 L 930 846" stroke="#64748B" stroke-width="1.6" fill="none"/>
-  <path d="M 520 770 L 520 846" stroke="#DC2626" stroke-width="1.4" stroke-dasharray="5 4" fill="none"/>
-  <path d="M 250 846 L 930 846" stroke="#64748B" stroke-width="1.6" fill="none"/>
-  <path d="M 590 846 L 590 866" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <path d="M 798 702 L 814 702 L 814 484 L 798 484" stroke="#94A3B8" stroke-width="1.3" fill="none" marker-end="url(#aL)" stroke-dasharray="4 3"/>
+  <text x="826" y="593" font-size="9.5" fill="#94A3B8" transform="rotate(-90 826 593)" text-anchor="middle">repair, shown the real values</text>
 
-  <rect x="310" y="872" width="560" height="92" rx="8" fill="#FFFFFF" stroke="#1E2B3A" stroke-width="1.6"/>
-  <text x="330" y="898" font-size="12.5" font-weight="700" fill="#1E2B3A">Uniform response envelope</text>
-  <text x="330" y="920" font-size="10.5" fill="#3B4C5F" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">{ question, route, answer, citations[], data: DataFrame|None, sql: str|None }</text>
-  <text x="330" y="942" font-size="10.5" fill="#7A8A9A">Every route returns the same shape — the UI branches on which fields are populated.</text>
-  <text x="330" y="957" font-size="10.5" fill="#7A8A9A">Streamlit renders: answer markdown · citation list · st.code(sql) · st.dataframe(data)</text>
+  <rect x="468" y="736" width="330" height="34" rx="7" fill="#FDF7EE" stroke="#B45309" stroke-width="1.3"/>
+  <text x="486" y="757" font-size="11" font-weight="700" fill="#92400E">finding <tspan font-weight="400" fill="#5B6B7C" font-size="10">— answer · sql · DataFrame · error, if any</tspan></text>
 
-  <!-- ===== legend ===== -->
-  <path d="M 40 990 L 1140 990" stroke="#E2E8EE"/>
-  <path d="M 60 1012 L 92 1012" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
-  <text x="100" y="1016" font-size="10" fill="#7A8A9A">control flow</text>
-  <path d="M 200 1012 L 232 1012" stroke="#4F46E5" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#aDash)"/>
-  <text x="240" y="1016" font-size="10" fill="#7A8A9A">reuses the neighbouring path</text>
-  <path d="M 420 1012 L 452 1012" stroke="#DC2626" stroke-width="1.4" marker-end="url(#aErr)"/>
-  <text x="460" y="1016" font-size="10" fill="#7A8A9A">failure path</text>
-  <rect x="570" y="1005" width="14" height="14" rx="3" fill="#FFF7ED" stroke="#EA580C"/>
-  <text x="592" y="1016" font-size="10" fill="#7A8A9A">deterministic guardrail (no LLM involved)</text>
-  <path d="M 880 1005 L 906 1019 L 880 1033 L 854 1019 Z" fill="#FFFFFF" stroke="#4F46E5" stroke-width="1.4" transform="translate(0,-14) scale(1)"/>
-  <text x="916" y="1016" font-size="10" fill="#7A8A9A">decision point</text>
+  <path d="M 633 728 L 633 734" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- ══════════ FAN-IN ══════════ -->
+  <path d="M 235 758 L 235 800 L 435 800" stroke="#0F766E" stroke-width="1.5" fill="none" stroke-dasharray="5 3"/>
+  <path d="M 633 770 L 633 800 L 435 800" stroke="#0F766E" stroke-width="1.5" fill="none" stroke-dasharray="5 3"/>
+  <path d="M 435 800 L 435 818" stroke="#0F766E" stroke-width="1.5" fill="none" marker-end="url(#a)" stroke-dasharray="5 3"/>
+
+  <rect x="105" y="824" width="660" height="66" rx="8" fill="#EEF2FF" stroke="#4F46E5" stroke-width="1.4"/>
+  <text x="126" y="846" font-size="12.5" font-weight="700" fill="#3730A3">supervisor · woken once per specialist</text>
+  <text x="126" y="864" font-size="10.5" fill="#3F3F8A">A wake-up arriving while another branch is still working is parked, not acted on —</text>
+  <text x="126" y="879" font-size="10.5" fill="#3F3F8A">otherwise a retrying branch loses its findings and the answer is built from half the evidence.</text>
+
+  <path d="M 435 890 L 435 908" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <!-- ══════════ TAIL ══════════ -->
+  <rect x="40" y="914" width="238" height="72" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="58" y="936" font-size="12" font-weight="700" fill="#1E2B3A">synthesize</text>
+  <text x="58" y="954" font-size="10" fill="#5B6B7C">two findings → one answer, merged</text>
+  <text x="58" y="968" font-size="10" fill="#5B6B7C">one finding → passed through untouched</text>
+  <text x="58" y="981" font-size="9.5" fill="#8B98A5">route is derived from who actually ran</text>
+
+  <rect x="298" y="914" width="238" height="72" rx="7" fill="#FFFFFF" stroke="#CBD5E1" stroke-dasharray="4 3"/>
+  <text x="316" y="936" font-size="12" font-weight="700" fill="#1E2B3A">critic</text>
+  <text x="518" y="935" font-size="9" font-weight="700" fill="#94A3B8" text-anchor="end">OFF BY DEFAULT</text>
+  <text x="316" y="954" font-size="10" fill="#5B6B7C">every claim checked against the sources —</text>
+  <text x="316" y="968" font-size="10" fill="#5B6B7C">documents <tspan font-weight="600">and</tspan> the query result, both</text>
+  <text x="316" y="981" font-size="9.5" fill="#8B98A5">not grounded → one redraft, then it ships</text>
+
+  <rect x="556" y="914" width="238" height="72" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="574" y="936" font-size="12" font-weight="700" fill="#1E2B3A">remember → END</text>
+  <text x="574" y="954" font-size="10" fill="#5B6B7C">files {question, answer} in history</text>
+  <text x="574" y="968" font-size="10" fill="#5B6B7C">the transcript keeps what was typed,</text>
+  <text x="574" y="981" font-size="9.5" fill="#8B98A5">not the supervisor's rewrite of it</text>
+
+  <path d="M 278 950 L 292 950" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
+  <path d="M 536 950 L 550 950" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
+  <path d="M 400 914 L 400 900 L 159 900 L 159 908" stroke="#94A3B8" stroke-width="1.3" fill="none" marker-end="url(#aL)" stroke-dasharray="4 3"/>
+
+  <path d="M 675 986 L 675 1006 L 435 1006 L 435 1020" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+
+  <!-- ══════════ ENVELOPE ══════════ -->
+  <rect x="105" y="1026" width="660" height="82" rx="8" fill="#F8FAFC" stroke="#1E2B3A" stroke-width="1.4"/>
+  <text x="126" y="1048" font-size="12" font-weight="700" fill="#1E2B3A">project(question, state) — the same envelope v1 returned</text>
+  <text x="126" y="1068" font-size="10.5" fill="#5B6B7C" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">{ question, route, answer, citations[], data: DataFrame|None, sql: str|None }</text>
+  <text x="126" y="1088" font-size="10" fill="#8B98A5">Streamlit renders the answer, the table, st.code(sql), the sources — and the steps narrate.describe()</text>
+  <text x="126" y="1101" font-size="10" fill="#8B98A5">produced from the same stream, so a person can see who was dispatched and what was retried.</text>
+
+  <!-- ══════════ SIDEBAR ══════════ -->
+  <rect x="870" y="94" width="270" height="196" rx="8" fill="#F5F7F9" stroke="#E2E8EE"/>
+  <text x="890" y="118" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.2">WHAT ONE PLAN CAN SAY</text>
+
+  <rect x="888" y="130" width="234" height="46" rx="6" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="902" y="148" font-size="10.5" font-weight="600" fill="#1E2B3A">one specialist</text>
+  <text x="902" y="164" font-size="9.5" fill="#8B98A5">asked the question unchanged</text>
+
+  <rect x="888" y="182" width="234" height="46" rx="6" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="902" y="200" font-size="10.5" font-weight="600" fill="#1E2B3A">two, parallel</text>
+  <text x="902" y="216" font-size="9.5" fill="#8B98A5">each asked only its own half</text>
+
+  <rect x="888" y="234" width="234" height="46" rx="6" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="902" y="252" font-size="10.5" font-weight="600" fill="#1E2B3A">two, sequential</text>
+  <text x="902" y="268" font-size="9.5" fill="#8B98A5">sql first; rag's half rewritten from it</text>
+
+  <rect x="870" y="306" width="270" height="180" rx="8" fill="#F5F7F9" stroke="#E2E8EE"/>
+  <text x="890" y="330" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.2">CEILINGS</text>
+  <text x="890" y="354" font-size="10.5" fill="#5B6B7C">supervisor dispatches</text>
+  <text x="1120" y="354" font-size="10.5" font-weight="600" fill="#1E2B3A" text-anchor="end">4 / turn</text>
+  <text x="890" y="376" font-size="10.5" fill="#5B6B7C">retrievals</text>
+  <text x="1120" y="376" font-size="10.5" font-weight="600" fill="#1E2B3A" text-anchor="end">2 / dispatch</text>
+  <text x="890" y="398" font-size="10.5" fill="#5B6B7C">SQL attempts</text>
+  <text x="1120" y="398" font-size="10.5" font-weight="600" fill="#1E2B3A" text-anchor="end">2 / dispatch</text>
+  <text x="890" y="420" font-size="10.5" fill="#5B6B7C">critic redrafts</text>
+  <text x="1120" y="420" font-size="10.5" font-weight="600" fill="#1E2B3A" text-anchor="end">1 / turn</text>
+  <text x="890" y="448" font-size="9.5" fill="#8B98A5">The per-specialist budgets are reset on</text>
+  <text x="890" y="462" font-size="9.5" fill="#8B98A5">every dispatch, so a re-dispatch gets a</text>
+  <text x="890" y="476" font-size="9.5" fill="#8B98A5">fresh allowance. A cycle without a</text>
+  <text x="890" y="490" font-size="9.5" fill="#8B98A5">ceiling is a hang.</text>
+
+  <rect x="870" y="502" width="270" height="182" rx="8" fill="#F5F7F9" stroke="#E2E8EE"/>
+  <text x="890" y="526" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.2">WHAT A TURN COSTS</text>
+  <text x="890" y="550" font-size="10.5" fill="#5B6B7C">one specialist</text>
+  <text x="1120" y="550" font-size="10.5" font-weight="600" fill="#1E2B3A" text-anchor="end">2 chat calls</text>
+  <text x="890" y="572" font-size="10.5" fill="#5B6B7C">two, parallel</text>
+  <text x="1120" y="572" font-size="10.5" font-weight="600" fill="#1E2B3A" text-anchor="end">4 + merge</text>
+  <text x="890" y="594" font-size="10.5" fill="#5B6B7C">two, sequential</text>
+  <text x="1120" y="594" font-size="10.5" font-weight="600" fill="#1E2B3A" text-anchor="end">+ 1 refine</text>
+  <text x="890" y="616" font-size="10.5" fill="#5B6B7C">each repair attempt</text>
+  <text x="1120" y="616" font-size="10.5" font-weight="600" fill="#1E2B3A" text-anchor="end">+ 1</text>
+  <text x="890" y="644" font-size="9.5" fill="#8B98A5">Measured over the 30-sample set:</text>
+  <text x="890" y="658" font-size="9.5" fill="#8B98A5">3.63 chat calls and 2,338 tokens per</text>
+  <text x="890" y="672" font-size="9.5" fill="#8B98A5">question, p50 latency 2.93 s.</text>
+
+  <rect x="870" y="700" width="270" height="150" rx="8" fill="#F5F7F9" stroke="#E2E8EE"/>
+  <text x="890" y="724" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.2">TIMEOUTS, PER CALL</text>
+  <text x="890" y="748" font-size="10.5" fill="#5B6B7C">chat completions</text>
+  <text x="1120" y="748" font-size="10.5" font-weight="600" fill="#1E2B3A" text-anchor="end">60 s</text>
+  <text x="890" y="770" font-size="10.5" fill="#5B6B7C">embeddings</text>
+  <text x="1120" y="770" font-size="10.5" font-weight="600" fill="#1E2B3A" text-anchor="end">30 s</text>
+  <text x="890" y="792" font-size="10.5" fill="#5B6B7C">planning · grading · critique</text>
+  <text x="1120" y="792" font-size="10.5" font-weight="600" fill="#1E2B3A" text-anchor="end">30 s</text>
+  <text x="890" y="820" font-size="9.5" fill="#8B98A5">Never one global budget: a turn makes</text>
+  <text x="890" y="834" font-size="9.5" fill="#8B98A5">several sequential calls, and a shared</text>
+  <text x="890" y="848" font-size="9.5" fill="#8B98A5">clock would kill the last one.</text>
+
+  <rect x="870" y="866" width="270" height="120" rx="8" fill="#FEF3F2" stroke="#F0BDBD"/>
+  <text x="890" y="890" font-size="10.5" font-weight="700" fill="#991B1B" letter-spacing="1.2">WHERE IT STOPS FOR A PERSON</text>
+  <text x="890" y="912" font-size="9.5" fill="#7F5252">A query the reviewer cannot classify, or</text>
+  <text x="890" y="926" font-size="9.5" fill="#7F5252">one the repairer rewrote rather than the</text>
+  <text x="890" y="940" font-size="9.5" fill="#7F5252">one the question produced. Ordinary</text>
+  <text x="890" y="954" font-size="9.5" fill="#7F5252">reads are not gated — a confirmation on</text>
+  <text x="890" y="968" font-size="9.5" fill="#7F5252">everything teaches people to click</text>
+  <text x="890" y="982" font-size="9.5" fill="#7F5252">through it. Off outside the app.</text>
+
+  <!-- ══════════ LEGEND ══════════ -->
+  <path d="M 40 1132 L 1140 1132" stroke="#E2E8EE"/>
+  <path d="M 60 1146 L 96 1146" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="106" y="1150" font-size="10" fill="#7A8A9A">control flow</text>
+  <path d="M 200 1146 L 236 1146" stroke="#0F766E" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="246" y="1150" font-size="10" fill="#7A8A9A">a finding reported back</text>
+  <path d="M 400 1146 L 436 1146" stroke="#94A3B8" stroke-width="1.3" stroke-dasharray="4 3"/>
+  <text x="446" y="1150" font-size="10" fill="#7A8A9A">a loop, with a ceiling</text>
+  <rect x="596" y="1140" width="14" height="11" rx="2" fill="#FEF3F2" stroke="#DC2626"/>
+  <text x="620" y="1150" font-size="10" fill="#7A8A9A">stops and asks</text>
+  <rect x="740" y="1140" width="14" height="11" rx="2" fill="#FFFFFF" stroke="#CBD5E1" stroke-dasharray="3 2"/>
+  <text x="764" y="1150" font-size="10" fill="#7A8A9A">in the tree, off in the shipped configuration</text>
 </svg>

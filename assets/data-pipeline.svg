@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="820" viewBox="0 0 1240 820" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="940" viewBox="0 0 1240 940" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
 
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -7,7 +7,7 @@
     </marker>
   </defs>
 
-  <rect width="1240" height="820" fill="#FFFFFF"/>
+  <rect width="1240" height="940" fill="#FFFFFF"/>
 
   <text x="40" y="44" font-size="19" font-weight="700" fill="#0F1B2A">Data Pipeline — ingestion, chunking, indexing, evaluation</text>
   <text x="40" y="66" font-size="11.5" fill="#7A8A9A">Built once, offline. None of these steps run at query time — the agent only reads the two stores on the right.</text>
@@ -149,68 +149,108 @@
   <text x="1200" y="524" font-size="10" fill="#94A3B8" text-anchor="end">Both stores are read-only at query time — see the architecture diagram.</text>
 
   <!-- ===== EVALUATION ===== -->
-  <rect x="40" y="548" width="1160" height="208" rx="10" fill="#F5F7F9" stroke="#E2E8EE"/>
-  <text x="56" y="572" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.4">EVALUATION — RUNS AFTER THE BUILD, AGAINST THE LIVE PIPELINES</text>
+  <rect x="40" y="548" width="1160" height="304" rx="10" fill="#F5F7F9" stroke="#E2E8EE"/>
+  <text x="56" y="572" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.4">EVALUATION — RUNS AFTER THE BUILD, THROUGH THE AGENT RATHER THAN AROUND IT</text>
+  <text x="1184" y="572" font-size="9.5" fill="#B6C2CD" text-anchor="end">The earlier harness called the two pipelines directly, so routing, dispatch and every loop were invisible to it.</text>
 
-  <rect x="60" y="592" width="210" height="132" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <text x="78" y="618" font-size="11.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ground_truth.json</text>
-  <text x="78" y="642" font-size="10.5" fill="#5B6B7C">15 hand-written pairs</text>
-  <text x="78" y="664" font-size="10.5" fill="#0F766E">10 RAG question + answer</text>
-  <text x="78" y="682" font-size="10.5" fill="#B45309">5 natural language + SQL</text>
-  <text x="78" y="706" font-size="9.5" fill="#8B98A5">covers all 5 services</text>
+  <!-- datasets -->
+  <rect x="60" y="588" width="238" height="118" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="78" y="612" font-size="11" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ground_truth.json</text>
+  <text x="78" y="634" font-size="10.5" fill="#5B6B7C">30 single-turn samples</text>
+  <text x="78" y="652" font-size="10.5" fill="#0F766E">10 documentation</text>
+  <text x="78" y="668" font-size="10.5" fill="#B45309">10 analytical — 5 adversarial</text>
+  <text x="78" y="684" font-size="10.5" fill="#7C3AED">10 needing both specialists</text>
+  <text x="78" y="700" font-size="9.5" fill="#8B98A5">each labelled with expected_agents + order</text>
 
-  <path d="M 270 658 L 306 658" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="60" y="718" width="238" height="112" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="78" y="742" font-size="11" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ground_truth_multiturn</text>
+  <text x="78" y="764" font-size="10.5" fill="#5B6B7C">10 two-turn conversations</text>
+  <text x="78" y="782" font-size="10.5" fill="#5B6B7C">only the second turn is scored</text>
+  <text x="78" y="800" font-size="9.5" fill="#8B98A5">8 refer back by pronoun, ellipsis or</text>
+  <text x="78" y="814" font-size="9.5" fill="#8B98A5">ordinal; 2 refer back to nothing</text>
 
-  <rect x="310" y="592" width="230" height="132" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <text x="328" y="618" font-size="11.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">run_evaluation.py</text>
-  <text x="328" y="642" font-size="10.5" fill="#5B6B7C">Runs the real RAGPipeline</text>
-  <text x="328" y="660" font-size="10.5" fill="#5B6B7C">and SQLPipeline — no mocks,</text>
-  <text x="328" y="678" font-size="10.5" fill="#5B6B7C">real retrieval, real queries.</text>
-  <text x="328" y="702" font-size="9.5" fill="#8B98A5">Retrieved chunks are captured</text>
-  <text x="328" y="716" font-size="9.5" fill="#8B98A5">as the context RAGAS scores.</text>
+  <path d="M 298 647 L 334 647" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <path d="M 298 774 L 334 774" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
 
-  <path d="M 540 658 L 560 658 L 560 626 L 576 626" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
-  <path d="M 540 658 L 560 658 L 560 696 L 576 696" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <!-- harnesses -->
+  <rect x="338" y="588" width="268" height="118" rx="7" fill="#FFFFFF" stroke="#4F46E5" stroke-width="1.4"/>
+  <text x="356" y="612" font-size="11" font-weight="700" fill="#3730A3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">run_evaluation.py</text>
+  <text x="356" y="634" font-size="10.5" fill="#5B6B7C">Runs the agent itself, not the pipelines:</text>
+  <text x="356" y="650" font-size="10.5" fill="#5B6B7C">--version v1 | v2 | v2-flat | v2-repair</text>
+  <text x="356" y="670" font-size="10.5" fill="#5B6B7C">The trajectory of nodes is recorded, which</text>
+  <text x="356" y="685" font-size="10.5" fill="#5B6B7C">is what makes delegation measurable.</text>
+  <text x="356" y="701" font-size="9.5" fill="#8B98A5">calls and tokens are counted per question</text>
 
-  <rect x="580" y="592" width="290" height="68" rx="7" fill="#F0FAF8" stroke="#0F766E" stroke-width="1.4"/>
-  <text x="598" y="613" font-size="11.5" font-weight="700" fill="#0B5C55">RAGAS metrics</text>
-  <text x="598" y="630" font-size="10" fill="#5B6B7C">faithfulness · answer relevancy</text>
-  <text x="598" y="644" font-size="10" fill="#5B6B7C">context precision · context recall</text>
-  <text x="598" y="656" font-size="9" fill="#8B98A5">judge gpt-4o-mini, max_tokens 4096 (avoids NaN)</text>
+  <rect x="338" y="718" width="268" height="112" rx="7" fill="#FFFFFF" stroke="#4F46E5" stroke-width="1.4"/>
+  <text x="356" y="742" font-size="11" font-weight="700" fill="#3730A3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">run_multiturn_eval.py</text>
+  <text x="356" y="764" font-size="10.5" fill="#5B6B7C">The same set, twice:</text>
+  <text x="356" y="782" font-size="10.5" fill="#0F766E">with-history — both turns, one thread</text>
+  <text x="356" y="798" font-size="10.5" fill="#B45309">no-history — the follow-up alone</text>
+  <text x="356" y="816" font-size="9.5" fill="#8B98A5">the second condition is the ablation</text>
 
-  <rect x="580" y="668" width="290" height="56" rx="7" fill="#FDF7EE" stroke="#B45309" stroke-width="1.4"/>
-  <text x="598" y="689" font-size="11.5" font-weight="700" fill="#92400E">SQL result matching</text>
-  <text x="598" y="706" font-size="10" fill="#5B6B7C">numeric answers: 5 % tolerance</text>
-  <text x="598" y="719" font-size="10" fill="#5B6B7C">string answers: exact after strip</text>
+  <path d="M 606 647 L 626 647 L 626 620 L 646 620" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <path d="M 606 647 L 626 647 L 626 700 L 646 700" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <path d="M 606 774 L 626 774 L 626 776 L 646 776" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
 
-  <path d="M 870 626 L 890 626 L 890 658 L 906 658" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
-  <path d="M 870 696 L 890 696 L 890 658" stroke="#64748B" stroke-width="1.6" fill="none"/>
+  <!-- metrics -->
+  <rect x="650" y="588" width="290" height="64" rx="7" fill="#F0FAF8" stroke="#0F766E" stroke-width="1.4"/>
+  <text x="668" y="609" font-size="11.5" font-weight="700" fill="#0B5C55">RAGAS — the answer and its sources</text>
+  <text x="668" y="626" font-size="10" fill="#5B6B7C">faithfulness · answer relevancy</text>
+  <text x="668" y="640" font-size="10" fill="#5B6B7C">context precision · context recall</text>
 
-  <rect x="910" y="592" width="130" height="132" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <text x="926" y="618" font-size="10.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">eval_report</text>
-  <text x="926" y="634" font-size="10.5" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">_&lt;ts&gt;.json</text>
-  <text x="926" y="660" font-size="10" fill="#5B6B7C">per-metric</text>
-  <text x="926" y="675" font-size="10" fill="#5B6B7C">scores plus</text>
-  <text x="926" y="690" font-size="10" fill="#5B6B7C">per-sample rows</text>
-  <text x="926" y="712" font-size="9.5" fill="#8B98A5">one file per run</text>
+  <rect x="650" y="660" width="290" height="80" rx="7" fill="#FDF7EE" stroke="#B45309" stroke-width="1.4"/>
+  <text x="668" y="681" font-size="11.5" font-weight="700" fill="#92400E">SQL — the value, not the query text</text>
+  <text x="668" y="698" font-size="10" fill="#5B6B7C">the labelled query is executed too, and the</text>
+  <text x="668" y="712" font-size="10" fill="#5B6B7C">two results compared: 5 % on numbers,</text>
+  <text x="668" y="726" font-size="10" fill="#5B6B7C">case-insensitive on strings</text>
 
-  <path d="M 1040 658 L 1056 658" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+  <rect x="650" y="748" width="290" height="82" rx="7" fill="#EEF2FF" stroke="#4F46E5" stroke-width="1.4"/>
+  <text x="668" y="769" font-size="11.5" font-weight="700" fill="#3730A3">The agent, and what it cost</text>
+  <text x="668" y="786" font-size="10" fill="#5B6B7C">delegation and order accuracy · resolution</text>
+  <text x="668" y="800" font-size="10" fill="#5B6B7C">of a follow-up, by required and forbidden</text>
+  <text x="668" y="814" font-size="10" fill="#5B6B7C">mentions · LLM calls, tokens, p50 latency</text>
 
-  <rect x="1060" y="592" width="140" height="132" rx="7" fill="#FFFFFF" stroke="#1E2B3A" stroke-width="1.5"/>
-  <text x="1076" y="618" font-size="11.5" font-weight="700" fill="#1E2B3A">Streamlit</text>
-  <text x="1076" y="636" font-size="11.5" font-weight="700" fill="#1E2B3A">Dashboard</text>
-  <text x="1076" y="662" font-size="10" fill="#5B6B7C">Evaluation tab</text>
-  <text x="1076" y="678" font-size="10" fill="#5B6B7C">reads the latest</text>
-  <text x="1076" y="693" font-size="10" fill="#5B6B7C">report on disk</text>
-  <text x="1076" y="714" font-size="9.5" fill="#8B98A5">no rerun needed</text>
+  <path d="M 940 620 L 958 620 L 958 700 L 976 700" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+  <path d="M 940 700 L 976 700" stroke="#64748B" stroke-width="1.6" fill="none"/>
+  <path d="M 940 789 L 958 789 L 958 700" stroke="#64748B" stroke-width="1.6" fill="none"/>
+
+  <!-- reports + dashboard -->
+  <rect x="980" y="588" width="106" height="242" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="996" y="612" font-size="10" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">eval_report</text>
+  <text x="996" y="626" font-size="10" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">_&lt;ts&gt;_&lt;ver&gt;</text>
+  <text x="996" y="640" font-size="10" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">.json</text>
+  <text x="996" y="662" font-size="9.5" fill="#5B6B7C">scores, plus</text>
+  <text x="996" y="676" font-size="9.5" fill="#5B6B7C">every sample</text>
+  <text x="996" y="690" font-size="9.5" fill="#5B6B7C">row behind</text>
+  <text x="996" y="704" font-size="9.5" fill="#5B6B7C">them</text>
+  <text x="996" y="736" font-size="10" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">multiturn</text>
+  <text x="996" y="750" font-size="10" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">_report</text>
+  <text x="996" y="764" font-size="10" font-weight="700" fill="#1E2B3A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">_&lt;ts&gt;.json</text>
+  <text x="996" y="786" font-size="9.5" fill="#5B6B7C">both conditions</text>
+  <text x="996" y="800" font-size="9.5" fill="#5B6B7C">side by side</text>
+  <text x="996" y="820" font-size="9.5" fill="#8B98A5">one file per run</text>
+
+  <path d="M 1086 700 L 1104 700" stroke="#64748B" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="1108" y="588" width="92" height="242" rx="7" fill="#FFFFFF" stroke="#1E2B3A" stroke-width="1.5"/>
+  <text x="1122" y="612" font-size="11" font-weight="700" fill="#1E2B3A">Streamlit</text>
+  <text x="1122" y="628" font-size="11" font-weight="700" fill="#1E2B3A">Dashboard</text>
+  <text x="1122" y="652" font-size="9.5" fill="#5B6B7C">Evaluation</text>
+  <text x="1122" y="666" font-size="9.5" fill="#5B6B7C">tab reads the</text>
+  <text x="1122" y="680" font-size="9.5" fill="#5B6B7C">newest eval</text>
+  <text x="1122" y="694" font-size="9.5" fill="#5B6B7C">report on disk</text>
+  <text x="1122" y="716" font-size="9.5" fill="#8B98A5">no rerun</text>
+  <text x="1122" y="730" font-size="9.5" fill="#8B98A5">needed</text>
 
   <!-- ===== legend ===== -->
-  <path d="M 40 780 L 1200 780" stroke="#E2E8EE"/>
-  <rect x="60" y="794" width="14" height="14" rx="3" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <text x="82" y="805" font-size="10" fill="#7A8A9A">external source</text>
-  <rect x="200" y="794" width="14" height="14" rx="3" fill="#F8FAFC" stroke="#CBD5E1"/>
-  <text x="222" y="805" font-size="10" fill="#7A8A9A">build script</text>
-  <rect x="330" y="794" width="14" height="14" rx="3" fill="#F6F3FF" stroke="#7C3AED"/>
-  <text x="352" y="805" font-size="10" fill="#7A8A9A">persistent store the agent reads</text>
-  <text x="1200" y="805" font-size="9.5" fill="#B6C2CD" text-anchor="end">Row 1 is the only path that calls an embedding model; rows 2 and 3 are plain relational loads.</text>
+  <path d="M 40 890 L 1200 890" stroke="#E2E8EE"/>
+  <rect x="60" y="904" width="14" height="14" rx="3" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="82" y="915" font-size="10" fill="#7A8A9A">external source</text>
+  <rect x="200" y="904" width="14" height="14" rx="3" fill="#F8FAFC" stroke="#CBD5E1"/>
+  <text x="222" y="915" font-size="10" fill="#7A8A9A">build script</text>
+  <rect x="330" y="904" width="14" height="14" rx="3" fill="#F6F3FF" stroke="#7C3AED"/>
+  <text x="352" y="915" font-size="10" fill="#7A8A9A">persistent store the agent reads</text>
+  <rect x="560" y="904" width="14" height="14" rx="3" fill="#EEF2FF" stroke="#4F46E5"/>
+  <text x="582" y="915" font-size="10" fill="#7A8A9A">runs the agent, and measures it</text>
+  <text x="1200" y="915" font-size="9.5" fill="#B6C2CD" text-anchor="end">Row 1 is the only path that calls an embedding model; rows 2 and 3 are plain relational loads.</text>
 </svg>
