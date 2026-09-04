@@ -40,14 +40,19 @@ def _question(state: AgentState) -> str:
     return state.get("resolved_question") or state["question"]
 
 
-def _effective_query(state: AgentState) -> str:
+def _effective_query(state: AgentState, agent: str) -> str:
     """The question this specialist should answer.
 
-    Normally the turn's question. For the second specialist in a sequential plan
-    it is the supervisor's rewrite, which carries the concrete entity the first
-    specialist found.
+    The supervisor splits a two-part question so each specialist gets its own
+    half; this is where the half is picked up. For the second specialist in a
+    sequential plan it is the supervisor's rewrite, which carries the concrete
+    entity the first specialist found.
+
+    Falls back to the whole question, which is what every specialist got before
+    the plan carried a split, and what a plan whose split came back empty still
+    gets.
     """
-    return state.get("agent_query") or _question(state)
+    return (state.get("agent_queries") or {}).get(agent) or _question(state)
 
 
 def _fresh_budgets() -> dict:
@@ -94,12 +99,21 @@ def make_supervisor_node(supervisor, max_passes: int = MAX_PASSES):
             if question != state["question"]:
                 print(f"  -> Resolved: {question[:72]!r}")
 
+            # The split, where the plan carries one. Empty entries are left out
+            # rather than filled in here, so `_effective_query` decides what a
+            # missing half degrades to, in one place.
+            queries = {t.agent: t.query.strip() for t in getattr(plan, "tasks", [])
+                       if (t.query or "").strip()}
+            for agent in agents:
+                if queries.get(agent) and queries[agent] != question:
+                    print(f"       {agent} <- {queries[agent][:60]!r}")
+
             if mode == "parallel" and len(agents) > 1:
                 print(f"  -> Dispatch: {' + '.join(agents)} (parallel)")
                 return Command(goto=agents, update={
                     "plan": [], "mode": "parallel", "awaiting": agents,
                     "resolved_question": question,
-                    "agent_query": question, "passes": passes,
+                    "agent_queries": queries, "passes": passes,
                     **_fresh_budgets(),
                 })
 
@@ -110,18 +124,23 @@ def make_supervisor_node(supervisor, max_passes: int = MAX_PASSES):
             return Command(goto=[agents[0]], update={
                 "plan": agents[1:], "mode": mode, "awaiting": [agents[0]],
                 "resolved_question": question,
-                "agent_query": question, "passes": passes,
+                "agent_queries": queries, "passes": passes,
                 **_fresh_budgets(),
             })
 
         remaining = list(state.get("plan", []))
         if remaining:
             nxt = remaining[0]
-            refined = supervisor.refine(_question(state), findings[-1], nxt)
+            queries = dict(state.get("agent_queries") or {})
+            # Refine the half this specialist was given, not the whole question:
+            # its half is what is left to answer, and the other half has already
+            # been answered by the finding being fed in.
+            refined = supervisor.refine(queries.get(nxt) or _question(state),
+                                        findings[-1], nxt)
             print(f"  -> Dispatch: {nxt} <- {refined[:60]!r}")
             return Command(goto=[nxt], update={
-                "plan": remaining[1:], "agent_query": refined, "passes": passes,
-                "awaiting": [nxt], **_fresh_budgets(),
+                "plan": remaining[1:], "agent_queries": {**queries, nxt: refined},
+                "passes": passes, "awaiting": [nxt], **_fresh_budgets(),
             })
 
         return Command(goto="synthesize", update={"passes": passes, "awaiting": []})
@@ -139,7 +158,7 @@ def make_rag_node(rag_pipeline, grader=None, max_attempts: int = MAX_RAG_ATTEMPT
     original question — the rewrite is a search term, not a change of subject.
     """
     def rag_node(state: AgentState) -> dict:
-        question = _effective_query(state)
+        question = _effective_query(state, "rag")
         attempts = state.get("rag_attempts", 0)
         search_query = state.get("rag_query") or question
 
@@ -244,7 +263,7 @@ def make_sql_node(sql_pipeline, repairer=None, max_attempts: int = MAX_SQL_ATTEM
     produced the query and could approve one query while executing another.
     """
     def sql_node(state: AgentState) -> dict:
-        question = _effective_query(state)
+        question = _effective_query(state, "sql")
         attempts = state.get("sql_attempts", 0)
         pending = state.get("pending_sql")
 

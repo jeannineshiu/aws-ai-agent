@@ -19,7 +19,7 @@ from src.graph.builder import GraphAgent, build_graph
 from src.graph.critic import Verdict
 from src.graph.grader import Grade
 from src.graph.narrate import describe
-from src.graph.supervisor import ContextualPlan, Plan
+from src.graph.supervisor import ContextualPlan, Plan, Supervisor, Task
 from src.router.router import RouteType
 from src.sql.validate import Review
 
@@ -38,18 +38,25 @@ class FakeRouter:
 
 
 class FakeSupervisor:
+    """`queries` is the per-specialist split, keyed by agent. Left empty, the
+    plan carries no split - which is what a real plan degrades to when the model
+    returns none, and what every plan looked like before Phase 5."""
+
     def __init__(self, agents, mode="parallel", refined="REFINED QUESTION",
-                 standalone=None):
-        self.plan_obj = Plan(agents=agents, mode=mode)
+                 standalone=None, queries=None):
+        self.agents = list(agents)
+        self.mode = mode
+        self.queries = dict(queries or {})
         self.standalone = standalone      # None: the question stands on its own
         self.refined = refined
         self.plan_calls, self.refine_calls = [], []
 
     def plan(self, question, history=None):
         self.plan_calls.append((question, list(history or [])))
+        tasks = [{"agent": a, "query": self.queries.get(a, "")} for a in self.agents]
         if self.standalone is None:
-            return self.plan_obj
-        return ContextualPlan(agents=self.plan_obj.agents, mode=self.plan_obj.mode,
+            return Plan(tasks=tasks, mode=self.mode)
+        return ContextualPlan(tasks=tasks, mode=self.mode,
                               standalone_question=self.standalone)
 
     def refine(self, question, finding, next_agent):
@@ -167,8 +174,9 @@ class FakeCritic:
 
 
 def make_graph(agents, mode="parallel", refined="REFINED QUESTION",
-               rag=None, sql=None, grader=None, repairer=None, critic=None, **budgets):
-    sup = FakeSupervisor(agents, mode, refined)
+               rag=None, sql=None, grader=None, repairer=None, critic=None,
+               queries=None, **budgets):
+    sup = FakeSupervisor(agents, mode, refined, queries=queries)
     rag = rag or FakeRAG()
     sql = sql or FakeSQL()
     syn = FakeSynthesizer()
@@ -220,6 +228,77 @@ def test_rag_route_does_not_touch_sql():
     assert sql.generated == []
 
 
+# ── what the supervisor does with what the model returned ─────────────────────
+#
+# The plan arrives from an LLM, and everything below is the part that does not
+# trust it. No API call: the structured-output client is stubbed with whatever
+# object the test wants the model to have produced.
+
+class StubLLM:
+    """Returns `result` from every structured call, or raises it if it is one."""
+
+    def __init__(self, result):
+        self.result = result
+
+    def with_structured_output(self, schema):
+        return self
+
+    def invoke(self, messages):
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def plan_from(result, question="q", history=None):
+    return Supervisor(llm=StubLLM(result)).plan(question, history)
+
+
+def test_one_specialist_is_asked_the_question_whole():
+    """With nothing to split, the split is not worth its risk: a paraphrase can
+    silently drop a constraint, and one specialist answering the whole question
+    is the case that has always worked."""
+    plan = plan_from(Plan(tasks=[Task(agent="sql", query="How many SageMaker questions?")],
+                          mode="parallel"),
+                     question="How many SageMaker questions were asked in 2023?")
+    assert plan.tasks[0].query == "How many SageMaker questions were asked in 2023?"
+
+
+def test_a_split_is_kept_when_there_are_two_specialists_to_split_between():
+    plan = plan_from(Plan(tasks=[Task(agent="sql", query="How many?"),
+                                 Task(agent="rag", query="How does it work?")],
+                          mode="parallel"),
+                     question="How many, and how does it work?")
+    assert [(t.agent, t.query) for t in plan.tasks] == [
+        ("sql", "How many?"), ("rag", "How does it work?")]
+
+
+def test_a_repeated_specialist_is_dispatched_once():
+    plan = plan_from(Plan(tasks=[Task(agent="sql", query="a"),
+                                 Task(agent="sql", query="b")], mode="parallel"))
+    assert plan.agents == ["sql"]
+
+
+def test_a_plan_with_no_tasks_falls_back_to_documentation():
+    """RAG is the safer default: it says it lacks the information rather than
+    inventing a query against the database."""
+    plan = plan_from(Plan(tasks=[], mode="parallel"), question="what is bedrock")
+    assert plan.agents == ["rag"] and plan.tasks[0].query == "what is bedrock"
+
+
+def test_a_failed_planning_call_still_returns_a_usable_plan():
+    plan = plan_from(RuntimeError("timeout"), question="what is bedrock")
+    assert plan.agents == ["rag"] and plan.standalone_question == "what is bedrock"
+
+
+def test_an_unusable_rewrite_degrades_to_what_the_user_typed():
+    plan = plan_from(ContextualPlan(tasks=[Task(agent="rag", query="x")],
+                                    mode="parallel", standalone_question="   "),
+                     question="How much does it cost?",
+                     history=[{"question": "What is Bedrock?", "answer": "..."}])
+    assert plan.standalone_question == "How much does it cost?"
+    assert plan.tasks[0].query == "How much does it cost?"
+
+
 # ── dispatch ──────────────────────────────────────────────────────────────────
 
 def test_parallel_dispatch_runs_both_on_the_original_question():
@@ -227,6 +306,38 @@ def test_parallel_dispatch_runs_both_on_the_original_question():
     v2.run("original question")
     assert rag.retrieve_calls == ["original question"]
     assert sql.generated == ["original question"]
+
+
+def test_each_specialist_gets_its_own_half_of_the_question():
+    """The failure this guards, caught by the multi-turn harness: the whole
+    question went to both specialists, so the count came back filtered by the
+    documentation half - 541 rows for a question whose answer is 1840."""
+    v2, _, rag, sql, _ = make_graph(
+        ["sql", "rag"], mode="parallel",
+        queries={"sql": "How many questions are tagged amazon-sagemaker?",
+                 "rag": "How does training work in Amazon SageMaker?"})
+    v2.run("How many questions are tagged SageMaker, and how does training work in it?")
+    assert sql.generated == ["How many questions are tagged amazon-sagemaker?"]
+    assert rag.retrieve_calls == ["How does training work in Amazon SageMaker?"]
+
+
+def test_a_plan_with_no_split_still_asks_the_whole_question():
+    """The split is an addition. A plan that carries none - an older caller, or a
+    model that returned empty queries - dispatches exactly as it did before."""
+    v2, _, rag, sql, _ = make_graph(["rag", "sql"], mode="parallel")
+    v2.run("original question")
+    assert rag.retrieve_calls == ["original question"]
+    assert sql.generated == ["original question"]
+
+
+def test_a_half_that_came_back_empty_falls_back_to_the_whole_question():
+    v2, _, rag, sql, _ = make_graph(
+        ["sql", "rag"], mode="parallel",
+        queries={"sql": "How many questions are tagged amazon-sagemaker?"})
+    v2.run("How many SageMaker questions are there, and how does training work?")
+    assert sql.generated == ["How many questions are tagged amazon-sagemaker?"]
+    assert rag.retrieve_calls == [
+        "How many SageMaker questions are there, and how does training work?"]
 
 
 def test_parallel_findings_are_merged_not_clobbered():
@@ -241,6 +352,29 @@ def test_sequential_feeds_the_first_result_into_the_second_query():
     v2.run("Which service has the most questions and what does it do?")
     assert sql.generated == ["Which service has the most questions and what does it do?"]
     assert rag.retrieve_calls == ["What does SageMaker do?"]
+
+
+def test_the_second_half_of_a_sequential_plan_is_what_gets_refined():
+    """Refinement fills in what the first specialist found. What it fills it into
+    is that specialist's own half - the other half has already been answered, and
+    feeding it back invites the rewrite to ask for it a second time."""
+    v2, sup, _, _, _ = make_graph(
+        ["sql", "rag"], mode="sequential",
+        queries={"sql": "Which repository has the most open issues?",
+                 "rag": "What is that project for?"})
+    v2.run("Which repository has the most open issues, and what is that project for?")
+    assert sup.refine_calls == [("What is that project for?", "sql", "rag")]
+
+
+def test_a_failed_refinement_falls_back_to_the_half_not_the_whole():
+    """`Supervisor.refine` returns the question it was given when the model
+    fails, so the fallback is whatever was handed in."""
+    v2, _, rag, _, _ = make_graph(
+        ["sql", "rag"], mode="sequential", refined="What is that project for?",
+        queries={"sql": "Which repository has the most open issues?",
+                 "rag": "What is that project for?"})
+    v2.run("Which repository has the most open issues, and what is that project for?")
+    assert rag.retrieve_calls == ["What is that project for?"]
 
 
 def test_both_route_synthesizes_instead_of_concatenating():
@@ -480,6 +614,10 @@ def test_placeholder_citations_are_stripped():
     assert strip("Answer. [Source: <title> | <service>]") == "Answer."
     assert strip("A [Source: <t> | <s>] and B [Source: Real Doc | SageMaker]") == \
         "A and B [Source: Real Doc | SageMaker]"
+    # The form the multi-turn harness produced, for a GitHub repository no AWS
+    # document covers: retrieval had nothing and the model cited anyway.
+    assert strip("Answer. [Source: Not available | Not available]") == "Answer."
+    assert strip("Answer. [Source: N/A | Unknown]") == "Answer."
 
 
 def test_real_citations_survive():
@@ -624,8 +762,8 @@ def test_loops_all_enables_every_loop():
 # graph does; it is a thing that must survive the graph having done nothing to
 # clear it, and with no checkpointer there is nothing to survive.
 
-def make_memory_graph(agents, mode="parallel", standalone=None, **kw):
-    sup = FakeSupervisor(agents, mode, standalone=standalone)
+def make_memory_graph(agents, mode="parallel", standalone=None, queries=None, **kw):
+    sup = FakeSupervisor(agents, mode, standalone=standalone, queries=queries)
     rag, sql, syn = FakeRAG(), FakeSQL(), FakeSynthesizer()
     agent = GraphAgent(sup, rag, sql, syn, loops=False, memory=True, **kw)
     return agent, sup, rag, sql, syn
@@ -667,7 +805,7 @@ def test_last_turns_findings_do_not_answer_this_turn():
     follow-up would come back routed `both`."""
     agent, sup, rag, sql, syn = make_memory_graph(["rag"])
     agent.run("What is Bedrock?", thread_id="t1")
-    sup.plan_obj.agents = ["sql"]
+    sup.agents = ["sql"]
     result = agent.run("How many questions mention it?", thread_id="t1")
     assert result["route"] == "sql"
     assert syn.merge_calls == [], "turn two had one specialist, nothing to merge"
@@ -713,6 +851,26 @@ def test_a_redrafted_answer_is_filed_once():
     assert history == [{"question": "What is Bedrock?", "answer": "REVISED ANSWER"}]
 
 
+def test_a_query_result_survives_the_checkpointer():
+    """A DataFrame is a channel value like any other, and every channel is
+    written to the checkpoint at every superstep. msgpack cannot encode one, so
+    without a serializer that copes, switching memory on breaks every question
+    that reaches SQL - the failure the multi-turn evaluation ran into first."""
+    import pandas as pd
+
+    rows = pd.DataFrame({"repo": ["aws-neuron/aws-neuron-sdk"], "open": [79]})
+    agent = GraphAgent(FakeSupervisor(["sql"]), FakeRAG(), FakeSQL([rows]),
+                       FakeSynthesizer(), loops=False, memory=True)
+
+    first = agent.run("How many open issues?", thread_id="t1")
+    assert first["data"].equals(rows)
+
+    # And the checkpoint it wrote can be read back to start a second turn.
+    agent.run("And closed ones?", thread_id="t1")
+    history = agent.graph.get_state({"configurable": {"thread_id": "t1"}}).values["history"]
+    assert len(history) == 2
+
+
 def test_memory_is_off_by_default():
     """A compiled checkpointer makes thread_id mandatory, and the evaluation
     harness runs 30 questions that must not see each other."""
@@ -740,6 +898,20 @@ def test_narration_shows_the_question_the_user_never_typed():
                            refined="What is Amazon SageMaker?")
     lines = narrate(agent, "Which service has the most questions and what does it do?")
     assert any("Asking documentation: *What is Amazon SageMaker?*" in l for l in lines)
+
+
+def test_narration_shows_which_half_went_where():
+    """A split that puts the wrong clause on the wrong specialist is invisible
+    until the number comes back wrong, which is how it survived four phases."""
+    agent, *_ = make_graph(
+        ["sql", "rag"], mode="parallel",
+        queries={"sql": "How many questions are tagged amazon-sagemaker?",
+                 "rag": "How does training work in Amazon SageMaker?"})
+    lines = narrate(agent, "How many questions are tagged SageMaker, and how does "
+                           "training work in it?")
+    assert any("data: *How many questions are tagged amazon-sagemaker?*" in l
+               and "documentation: *How does training work in Amazon SageMaker?*" in l
+               for l in lines), lines
 
 
 def test_narration_shows_what_a_follow_up_was_taken_to_mean():

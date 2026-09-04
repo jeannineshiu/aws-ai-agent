@@ -39,11 +39,22 @@ def describe(node: str, update: dict | None, question: str = "") -> str | None:
         joined = " + " if u.get("mode") == "parallel" else " → "
         who = joined.join(NAMES.get(a, a) for a in dispatched)
 
-        query = u.get("agent_query")
-        if query and query != resolved:
-            # The second half of a sequential plan, asking something the user
-            # never typed because the first half had to run to produce it.
-            return f"{prefix}Asking {who}: *{query}*"
+        # What each dispatched specialist was actually asked, where that is not
+        # simply the question. Two cases produce one: the supervisor split a
+        # two-part question, or the second half of a sequential plan is being
+        # asked something the user never typed because the first half had to run
+        # to produce it. Both are worth showing - a split that puts the wrong
+        # clause on the wrong specialist is otherwise invisible until the number
+        # comes back wrong.
+        queries = u.get("agent_queries") or {}
+        asked = [(a, queries[a]) for a in dispatched
+                 if queries.get(a) and queries[a] != (resolved or question)]
+
+        if len(asked) == 1 and len(dispatched) == 1:
+            return f"{prefix}Asking {who}: *{asked[0][1]}*"
+        if asked:
+            halves = "; ".join(f"{NAMES.get(a, a)}: *{q}*" for a, q in asked)
+            return f"{prefix}Splitting it — {halves}"
         return f"{prefix}Dispatching {who}"
 
     if node == "rag":

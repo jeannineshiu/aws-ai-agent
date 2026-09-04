@@ -70,7 +70,9 @@ class AgentState(TypedDict, total=False):
     # supervisor bookkeeping
     plan: list[str]          # specialists still to dispatch (sequential only)
     mode: str                # "parallel" | "sequential"
-    agent_query: str         # the question the next dispatched specialist should answer
+    agent_queries: dict[str, str]  # per specialist, the question it alone should answer
+                             # (the supervisor is the only writer, so a plain
+                             #  channel is enough even under parallel fan-out)
     awaiting: list[str]      # specialists dispatched and not yet reported
     passes: int              # dispatch budget guard — a supervisor loop needs a ceiling
 

@@ -53,8 +53,14 @@ Rules:
 # these to be dropped; this strips them regardless, on the same reasoning as
 # README section 4 — the prompt reduces how often it happens, the code makes it
 # impossible.
+# "Not available" is the third form seen in the wild, after the unfilled
+# <angle-bracket> slot and N/A - the multi-turn harness produced one for a
+# GitHub repository the AWS documentation does not cover, which is exactly the
+# case where retrieval has nothing and the model cites anyway.
+_EMPTY = r"N/?A|not available|unknown|none"
 _PLACEHOLDER_CITATION = re.compile(
-    r"\s*\[Source:\s*(?:[^\]]*<[^\]]*|N/?A\s*\|\s*N/?A\s*)\]", re.IGNORECASE)
+    rf"\s*\[Source:\s*(?:[^\]]*<[^\]]*|(?:{_EMPTY})\s*\|\s*(?:{_EMPTY})\s*)\]",
+    re.IGNORECASE)
 
 
 REVISION_PROMPT = ChatPromptTemplate.from_template("""

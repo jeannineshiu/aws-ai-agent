@@ -43,7 +43,7 @@ class CallCounter:
     """
 
     def __init__(self):
-        self.llm = self.embed = 0
+        self.llm = self.embed = self.tokens = 0
         self._patches = []
 
     def __enter__(self):
@@ -57,7 +57,13 @@ class CallCounter:
 
             def wrapper(inner_self, *args, _o=original, _f=field, **kwargs):
                 setattr(self, _f, getattr(self, _f) + 1)
-                return _o(inner_self, *args, **kwargs)
+                out = _o(inner_self, *args, **kwargs)
+                # Calls are the coarse cost; tokens are the one that moves when
+                # the prompt grows without the call count changing - carrying a
+                # conversation forward, for one.
+                usage = getattr(out, "usage_metadata", None) or {}
+                self.tokens += usage.get("total_tokens", 0)
+                return out
 
             setattr(cls, attr, wrapper)
         return self
@@ -67,7 +73,7 @@ class CallCounter:
             setattr(cls, attr, original)
 
     def reset(self):
-        self.llm = self.embed = 0
+        self.llm = self.embed = self.tokens = 0
 
 
 # ── the implementations under test ────────────────────────────────────────────
@@ -160,11 +166,22 @@ def first_value(df):
 
 
 def values_match(got, want) -> bool:
-    """The comparison the original harness used: strings exact, numbers to 5%."""
+    """Strings equal ignoring case and surrounding space, numbers to 5%.
+
+    The original harness compared strings exactly, and that cost two correct
+    answers in the Phase 5 run: a query that returns 'SageMaker' where the
+    labelled value is 'sagemaker' has ranked the services correctly. The
+    labels are hand-written and their case is arbitrary, so exact comparison
+    was measuring the label, not the answer.
+
+    Both sides of every published comparison are recomputed under this rule
+    from the stored `sql_details` of the earlier reports, so relaxing it does
+    not silently improve a number by changing what was counted.
+    """
     if got is None or want is None:
         return False
     if isinstance(want, str):
-        return str(got).strip() == want.strip()
+        return str(got).strip().casefold() == want.strip().casefold()
     try:
         return abs(float(got) - float(want)) <= max(1, abs(float(want)) * 0.05)
     except (TypeError, ValueError):
@@ -300,6 +317,9 @@ def build_report(version, rag_metrics, sql_df, agent_metrics, records) -> dict:
             "llm_calls_per_query": round(
                 sum(r["llm_calls"] for r in records) / max(len(records), 1), 2),
             "embed_calls_total": sum(r["embed_calls"] for r in records),
+            "tokens_total": sum(r.get("tokens", 0) for r in records),
+            "tokens_per_query": round(
+                sum(r.get("tokens", 0) for r in records) / max(len(records), 1)),
             "seconds_total": round(sum(r["elapsed"] for r in records), 1),
             "seconds_p50": round(sorted(r["elapsed"] for r in records)[len(records) // 2], 2)
             if records else 0.0,
@@ -341,6 +361,8 @@ def print_report(report: dict):
     print("\n--- Cost ---")
     print(f"  LLM calls              {c['llm_calls_total']} "
           f"({c['llm_calls_per_query']} per query)")
+    print(f"  LLM tokens             {c['tokens_total']} "
+          f"({c['tokens_per_query']} per query)")
     print(f"  wall clock             {c['seconds_total']}s total, "
           f"{c['seconds_p50']}s p50")
 
@@ -389,6 +411,7 @@ def main():
                           "contexts": [], "agents": [], "trajectory": [], "elapsed": 0.0}
             result["sample"] = sample
             result["llm_calls"], result["embed_calls"] = counter.llm, counter.embed
+            result["tokens"] = counter.tokens
             records.append(result)
 
     conn = sqlite3.connect(DB)

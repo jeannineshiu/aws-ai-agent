@@ -1,7 +1,7 @@
 # src/graph/supervisor.py
 """The supervisor: decides which specialists run, and in what relationship.
 
-This replaces QueryRouter's single classification. Two things change.
+This replaces QueryRouter's single classification. Three things change.
 
 First, the decision is structured rather than parsed from free text.
 QueryRouter mapped any unrecognised reply to RAG through
@@ -14,12 +14,20 @@ need both specialists working independently; others need the second specialist
 to see the first one's answer before it can even form its query. v1 could not
 express the difference, which is why the `both` route sent the raw question to
 the retriever and got back nothing relevant.
+
+Third, the plan says what each specialist is being asked, not just that it was
+asked. A two-part question sent whole to both specialists is answered whole by
+both: the multi-turn harness caught "how many questions are tagged SageMaker,
+and how does training work in it" becoming a count with `AND title LIKE
+'%training%'` bolted on - 541 rows instead of 1840, because the documentation
+half narrowed the query. Deciding who runs and deciding what they are asked is
+one decision, so it is one call.
 """
 from typing import Literal
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,14 +35,44 @@ load_dotenv()
 AGENTS = ("rag", "sql")
 
 
+class Task(BaseModel):
+    """One specialist, and the question that specialist alone has to answer."""
+    agent: Literal["rag", "sql"]
+    query: str = Field(
+        description="The part of the question this specialist should answer, written "
+                    "so it stands on its own. It must carry no clause meant for the "
+                    "other specialist."
+    )
+
+
 class Plan(BaseModel):
-    """Which specialists to run, and how they relate."""
-    agents: list[Literal["rag", "sql"]] = Field(
-        description="Specialists needed. For sequential mode, list the one that must run first."
+    """Which specialists to run, what each is asked, and how they relate."""
+    tasks: list[Task] = Field(
+        description="One entry per specialist needed. For sequential mode, list the "
+                    "one that must run first."
     )
     mode: Literal["parallel", "sequential"] = Field(
         description="Whether the second specialist depends on the first one's answer."
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_bare_agents(cls, data):
+        """Allow `Plan(agents=[...])` - a plan with no split, every task empty.
+
+        The split is an addition, not a replacement: a caller that only knows
+        which specialists to run still builds a valid plan, and every empty
+        query degrades to the whole question at dispatch. Tests and any older
+        caller construct plans this way.
+        """
+        if isinstance(data, dict) and "tasks" not in data and "agents" in data:
+            data = dict(data)
+            data["tasks"] = [{"agent": a, "query": ""} for a in data.pop("agents")]
+        return data
+
+    @property
+    def agents(self) -> list[str]:
+        return [t.agent for t in self.tasks]
 
 
 class ContextualPlan(Plan):
@@ -56,6 +94,12 @@ class Refinement(BaseModel):
     query: str = Field(description="A single self-contained question.")
 
 
+# Two decisions in one prompt, in this order on purpose. Choosing the
+# specialists comes first and stands alone; splitting the question is a second
+# section that only applies once two of them have been chosen. Written the other
+# way round - with the split up front and every example a decomposition - the
+# model started adding a documentation specialist to plain counting questions to
+# have something to split, and delegation accuracy fell from 90% to 50%.
 PLAN_PROMPT = ChatPromptTemplate.from_template("""
 You are the supervisor of an AWS AI/ML assistant. Two specialists are available.
 
@@ -67,33 +111,66 @@ You are the supervisor of an AWS AI/ML assistant. Two specialists are available.
 Include a specialist only if the question cannot be answered without it. Adding
 one that is not needed doubles the cost and dilutes the answer.
 
+- A question that only asks for a count, a ranking or a trend is sql alone. Do
+  not add rag to explain or give context to the number; the data specialist
+  writes the sentence around its own result.
+- A question that only asks what something is or how it works is rag alone. Do
+  not add sql to say how often it is asked about.
+- Two specialists only when the question has two parts, one of which no single
+  specialist can answer.
+
 mode (ignored when only one specialist is chosen):
-- "parallel"   : both specialists can work from the original question, because
-                 each half names what it is about.
+- "parallel"   : both specialists can work now, because each half names what it
+                 is about.
 - "sequential" : the second specialist cannot form its query until the first has
                  answered, because the question identifies something by a
                  statistic and the identity is unknown until the data is queried.
                  List the specialist that resolves the unknown first - this is
                  almost always sql, since it is the one that ranks and counts.
 
+Then write the query for each specialist you chose.
+
+- One specialist: its query is the question, unchanged.
+- Two: split the question. Each gets its own clause, written so it stands on its
+  own, and never the clause meant for the other. A count that arrives carrying
+  the documentation half of the question comes back filtered by it, which is a
+  wrong number rather than a missing one.
+- A clause asking what something is, does or is for belongs to rag however
+  completely the rest of the question names its subject.
+- In sequential mode, write the second query as best you can; it is rewritten
+  with the concrete answer once the first specialist reports.
+
 Examples:
 
   "What is Amazon Bedrock?"
-    agents ["rag"] - documentation only, nothing to count.
+    rag - documentation only, nothing to count.
+      rag: "What is Amazon Bedrock?"
 
   "How many SageMaker questions were asked in 2023?"
-    agents ["sql"] - a count, and the service is already named.
+    sql - a count, and the service is already named. Nothing here asks how
+    SageMaker works, so nothing goes to rag.
+      sql: "How many SageMaker questions were asked in 2023?"
 
   "Which AWS service has the most unanswered questions?"
-    agents ["sql"] - a ranking. The answer is a name, not an explanation.
+    sql - a ranking. The answer is a name, not an explanation.
+      sql: "Which AWS service has the most unanswered questions?"
 
   "What are the most common SageMaker issues, and how does training work?"
-    agents ["sql", "rag"], mode "parallel" - the service is named in the question,
-    so the documentation half can be searched without waiting for the data half.
+    sql + rag, mode "parallel" - two parts, and each half names its subject.
+      sql: "What are the most commonly reported Amazon SageMaker issues?"
+      rag: "How does training work in Amazon SageMaker?"
+
+  "How many open issues does the aws-cdk repository have, and what is it for?"
+    sql + rag, mode "parallel" - the repository being named does not make "what
+    is it for" a database question.
+      sql: "How many open issues does the aws-cdk repository have?"
+      rag: "What is the aws-cdk repository for?"
 
   "Which service has the most questions and what does it do?"
-    agents ["sql", "rag"], mode "sequential" - which service is unknown until the
-    database is queried, and only then can the documentation be searched for it.
+    sql + rag, mode "sequential" - which service is unknown until the database is
+    queried, and only then can the documentation be searched for it.
+      sql: "Which AWS service has the most questions?"
+      rag: "What does that service do?"
 
 Question: {question}
 """)
@@ -114,6 +191,11 @@ the concrete thing it refers to in the conversation above. If the question
 already stands on its own, repeat it unchanged - a follow-up is not always
 about what came before.
 
+Change as little as possible. Replace the references and nothing else: do not
+add a clause the user did not ask for, and do not enumerate the members of a set
+the earlier turn named as a set. The user asked one question, and the rewrite
+has to be that same question.
+
 Then plan the dispatch for the rewritten question, not for the words the user
 typed.
 
@@ -124,27 +206,55 @@ Two specialists are available.
 - sql : A database of GitHub issues and Stack Overflow questions. Produces counts,
         rankings, trends and aggregates. It cannot explain how a service works.
 
-Include a specialist only if the question cannot be answered without it. Adding
-one that is not needed doubles the cost and dilutes the answer.
+Include a specialist only if the rewritten question cannot be answered without
+it. Adding one that is not needed doubles the cost and dilutes the answer.
+
+- A question that only asks for a count, a ranking or a trend is sql alone. Do
+  not add rag to explain or give context to the number.
+- A question that only asks what something is or how it works is rag alone. Do
+  not add sql to say how often it is asked about.
+- Two specialists only when the question has two parts, one of which no single
+  specialist can answer.
 
 mode (ignored when only one specialist is chosen):
-- "parallel"   : both specialists can work from the rewritten question, because
-                 each half names what it is about.
+- "parallel"   : both specialists can work now, because each half names what it
+                 is about.
 - "sequential" : the second specialist cannot form its query until the first has
                  answered. List the specialist that resolves the unknown first -
                  almost always sql, since it is the one that ranks and counts.
 
+Then write the query for each specialist you chose, drawn from the rewritten
+question.
+
+- One specialist: its query is the rewritten question, unchanged.
+- Two: split it. Each gets its own clause, written so it stands on its own, and
+  never the clause meant for the other. A count that arrives carrying the
+  documentation half comes back filtered by it - a wrong number, not a missing
+  one.
+- A clause asking what something is, does or is for belongs to rag however
+  completely the rewrite names its subject. Resolving a reference into concrete
+  names does not move that clause into the database.
+
 Examples, given "What is Amazon Bedrock?" earlier in the conversation:
 
   "How much does it cost?"
-    standalone "How much does Amazon Bedrock cost?", agents ["rag"].
+    standalone "How much does Amazon Bedrock cost?"
+      rag: "How much does Amazon Bedrock cost?"
 
   "How many questions are there about it?"
-    standalone "How many questions are there about Amazon Bedrock?", agents ["sql"].
+    standalone "How many questions are there about Amazon Bedrock?" - a count and
+    nothing else, so rag is not involved.
+      sql: "How many questions are there about Amazon Bedrock?"
 
   "What is Amazon Comprehend?"
-    standalone "What is Amazon Comprehend?", agents ["rag"] - a new subject,
-    nothing to resolve.
+    standalone "What is Amazon Comprehend?" - a new subject, nothing to resolve.
+      rag: "What is Amazon Comprehend?"
+
+  "How many questions are tagged with it, and how does it handle long documents?"
+    standalone "How many questions are tagged amazon-bedrock, and how does Amazon
+    Bedrock handle long documents?", mode "parallel"
+      sql: "How many questions are tagged amazon-bedrock?"
+      rag: "How does Amazon Bedrock handle long documents?"
 """)
 
 REFINE_PROMPT = ChatPromptTemplate.from_template("""
@@ -189,12 +299,14 @@ class Supervisor:
         self._refiner = self.llm.with_structured_output(Refinement)
 
     def plan(self, question: str, history: list[dict] | None = None) -> Plan:
-        """Decide the dispatch. Falls back to rag-only if the model returns nothing usable.
+        """Decide the dispatch, and what each specialist is asked.
+
+        Falls back to rag-only if the model returns nothing usable.
 
         With earlier turns to draw on, the same call also resolves what the
         question refers to; `standalone_question` carries the result. Without
-        them the call is byte-identical to the one Phase 1 made, so the
-        single-turn numbers stay comparable.
+        them the call asks for the same schema Phase 1 asked for plus the split,
+        so a single-specialist question takes the same path it always did.
         """
         try:
             if history:
@@ -205,24 +317,34 @@ class Supervisor:
         except Exception:
             plan = None
 
-        agents = []
+        tasks: list[Task] = []
         if plan is not None:
             # Preserve order, drop duplicates and anything outside the vocabulary.
-            for a in plan.agents:
-                if a in AGENTS and a not in agents:
-                    agents.append(a)
+            seen = set()
+            for t in plan.tasks:
+                if t.agent in AGENTS and t.agent not in seen:
+                    seen.add(t.agent)
+                    tasks.append(Task(agent=t.agent, query=(t.query or "").strip()))
 
         # An empty or unusable rewrite degrades to the words the user typed,
         # which is exactly the pre-Phase-3 behaviour.
         standalone = (getattr(plan, "standalone_question", "") or "").strip() or question
 
-        if not agents:
+        if not tasks:
             # RAG is the safer default: it says it lacks the information rather
             # than inventing a query against the database.
-            return ContextualPlan(agents=["rag"], mode="parallel",
-                                  standalone_question=standalone)
+            return ContextualPlan(tasks=[Task(agent="rag", query=standalone)],
+                                  mode="parallel", standalone_question=standalone)
 
-        return ContextualPlan(agents=agents, mode=plan.mode if plan else "parallel",
+        if len(tasks) == 1:
+            # Nothing to split, so the split is not worth its risk: one
+            # specialist answering the whole question is the case that has
+            # always worked, and a paraphrase here could quietly drop a
+            # constraint the user gave. The rewrite is only kept where it does
+            # work - separating two specialists' halves.
+            tasks = [Task(agent=tasks[0].agent, query=standalone)]
+
+        return ContextualPlan(tasks=tasks, mode=plan.mode if plan else "parallel",
                               standalone_question=standalone)
 
     def refine(self, question: str, finding: dict, next_agent: str) -> str:

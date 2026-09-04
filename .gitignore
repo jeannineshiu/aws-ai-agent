@@ -10,5 +10,6 @@ data/raw/
 # git descending at all, and the exception would silently never apply.
 data/processed/*
 !data/processed/ground_truth.json
+!data/processed/ground_truth_multiturn.json
 *.db
 .chroma/

@@ -105,6 +105,13 @@ class GraphAgent:
     #   adversarial SQL      60%        60%         100%         100%
     #   LLM calls/query     2.87       3.43         3.73         5.93
     #
+    # Those four columns predate the per-specialist split, which is not a
+    # configuration - it is on for every one of them. Re-measured after it, the
+    # shipped column reads answer_relevancy 0.780, faithfulness 0.797,
+    # SQL accuracy 60% -> 90%, 3.63 calls/query. The comparison between the
+    # columns is what they were run for and still holds; the absolute numbers
+    # for `repair` are the newer ones.
+    #
     # The grader and the critic together add 2.2 calls per query and move
     # faithfulness by 0.006 - inside the run-to-run noise band - while costing
     # 0.114 of answer relevancy, because the critic trims content it cannot tie
@@ -149,7 +156,17 @@ class GraphAgent:
             # for confirmation asks for a checkpointer whether or not the
             # caller wanted multi-turn as well.
             from langgraph.checkpoint.memory import MemorySaver
-            checkpointer = MemorySaver()
+            from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+            # Every channel is written to the checkpoint at every superstep,
+            # and `data` holds a DataFrame, which msgpack cannot encode. Without
+            # this, any turn that reaches SQL raises the moment memory is on -
+            # the whole analytics half of the agent, in the only configuration
+            # the app runs. `pickle_fallback` keeps the msgpack path for every
+            # channel that can take it and pickles only the ones that cannot.
+            # It is sound because this saver lives and dies with the process; a
+            # durable checkpointer should store the result as rows instead.
+            checkpointer = MemorySaver(serde=JsonPlusSerializer(pickle_fallback=True))
         self.memory = checkpointer is not None
         self.confirm_sql = confirm_sql
 
@@ -179,7 +196,7 @@ class GraphAgent:
             "findings": None,
             "resolved_question": "",
             "passes": 0, "revisions": 0, "critique": None, "grounded": None,
-            "plan": [], "awaiting": [], "agent_query": "", "mode": "parallel",
+            "plan": [], "awaiting": [], "agent_queries": {}, "mode": "parallel",
             "rag_attempts": 0, "rag_query": None, "rag_missing": "",
             "sql_attempts": 0, "sql_error": None, "last_sql": None,
             "pending_sql": None, "confirm_reason": "", "sql_declined": False,
