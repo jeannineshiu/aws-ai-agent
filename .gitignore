@@ -5,7 +5,11 @@ __pycache__/
 .DS_Store
 .pytest_cache/
 data/raw/
-data/processed/
+# Note: the negation below only works because the pattern excludes the
+# directory's *contents* rather than the directory. `data/processed/` would stop
+# git descending at all, and the exception would silently never apply.
+data/processed/*
 !data/processed/ground_truth.json
+!data/processed/ground_truth_multiturn.json
 *.db
 .chroma/

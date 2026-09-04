@@ -1,167 +1,180 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="940" height="900" viewBox="0 0 940 900" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="1076" viewBox="0 0 1020 1076" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
 
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748B"/>
     </marker>
-    <marker id="arrowDash" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="arrowLoop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#94A3B8"/>
+    </marker>
+    <marker id="arrowBack" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0F766E"/>
     </marker>
   </defs>
 
-  <rect width="940" height="900" fill="#FFFFFF"/>
+  <rect width="1020" height="1076" fill="#FFFFFF"/>
 
   <!-- ============ TITLE ============ -->
   <text x="40" y="44" font-size="19" font-weight="700" fill="#0F1B2A">AWS AI/ML Knowledge &amp; Analytics Agent — System Architecture</text>
-  <text x="40" y="66" font-size="11.5" fill="#7A8A9A">Router-first agent — one chat entry point, two specialised pipelines, deterministic guardrails. Layers 2–4 run in a single Python process.</text>
+  <text x="40" y="66" font-size="11.5" fill="#7A8A9A">A supervisor multi-agent graph. One structured plan per turn decides who runs, in what relation, and what each specialist is asked. Layers 2–4 run in one Python process.</text>
 
-  <!-- ============ BAND A · INTERFACE ============ -->
-  <rect x="40" y="92" width="860" height="108" rx="10" fill="#F5F7F9" stroke="#E2E8EE"/>
+  <!-- ============ BAND 1 · INTERFACE ============ -->
+  <rect x="40" y="92" width="940" height="112" rx="10" fill="#F5F7F9" stroke="#E2E8EE"/>
   <text x="56" y="114" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.4">1 · INTERFACE</text>
 
-  <rect x="60" y="128" width="400" height="60" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <rect x="60" y="128" width="4" height="60" rx="2" fill="#64748B"/>
-  <text x="80" y="152" font-size="13.5" font-weight="600" fill="#1E2B3A">Streamlit App</text>
-  <text x="80" y="169" font-size="10.5" fill="#5B6B7C">app.py — Chat tab · Evaluation Dashboard tab</text>
-  <text x="80" y="183" font-size="10.5" fill="#8B98A5">@st.cache_resource → one agent instance per process</text>
+  <rect x="60" y="126" width="440" height="66" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <rect x="60" y="126" width="4" height="66" rx="2" fill="#64748B"/>
+  <text x="80" y="150" font-size="13.5" font-weight="600" fill="#1E2B3A">Streamlit App</text>
+  <text x="80" y="167" font-size="10.5" fill="#5B6B7C">app.py — Chat · Evaluation Dashboard</text>
+  <text x="80" y="183" font-size="10.5" fill="#8B98A5">streams each node · one thread per browser session</text>
 
-  <rect x="480" y="128" width="400" height="60" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
-  <rect x="480" y="128" width="4" height="60" rx="2" fill="#64748B"/>
-  <text x="500" y="152" font-size="13.5" font-weight="600" fill="#1E2B3A">CLI / Batch</text>
-  <text x="500" y="169" font-size="10.5" fill="#5B6B7C">scripts/test_agent.py · scripts/run_evaluation.py</text>
-  <text x="500" y="183" font-size="10.5" fill="#8B98A5">same AWSAgent entry point, no UI dependency</text>
+  <rect x="520" y="126" width="440" height="66" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <rect x="520" y="126" width="4" height="66" rx="2" fill="#64748B"/>
+  <text x="540" y="150" font-size="13.5" font-weight="600" fill="#1E2B3A">CLI &amp; evaluation harnesses</text>
+  <text x="540" y="167" font-size="10.5" fill="#5B6B7C">run_evaluation.py · run_multiturn_eval.py · compare_v1_v2.py</text>
+  <text x="540" y="183" font-size="10.5" fill="#8B98A5">the same agent object the app runs — no mocks, no UI</text>
 
-  <!-- ============ BAND B · ORCHESTRATION ============ -->
-  <rect x="40" y="216" width="860" height="148" rx="10" fill="#F5F7F9" stroke="#E2E8EE"/>
-  <text x="56" y="238" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.4">2 · ORCHESTRATION</text>
-  <text x="884" y="238" font-size="10.5" fill="#8B98A5" text-anchor="end">AWSAgent.run(question) · src/agent/agent.py</text>
+  <!-- ============ BAND 2 · ORCHESTRATION ============ -->
+  <path d="M 500 192 L 500 232" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <text x="510" y="216" font-size="10" fill="#7A8A9A">question · thread_id</text>
 
-  <path d="M 470 188 L 470 248" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
-  <text x="480" y="212" font-size="10" fill="#7A8A9A">question: str</text>
+  <rect x="40" y="238" width="940" height="150" rx="10" fill="#F5F7F9" stroke="#E2E8EE"/>
+  <text x="56" y="260" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.4">2 · ORCHESTRATION</text>
+  <text x="964" y="260" font-size="10.5" fill="#8B98A5" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">src/graph/builder.py</text>
 
-  <rect x="250" y="254" width="440" height="72" rx="8" fill="#EEF2FF" stroke="#4F46E5" stroke-width="1.6"/>
-  <text x="270" y="282" font-size="14" font-weight="700" fill="#3730A3">QueryRouter</text>
-  <text x="670" y="281" font-size="9.5" fill="#6366F1" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">src/router/router.py</text>
-  <text x="270" y="301" font-size="10.5" fill="#3F3F8A">gpt-4o-mini · temperature 0 · timeout 30 s · ~10 output tokens</text>
-  <text x="270" y="317" font-size="10.5" fill="#6D6DA8">single-word classification · unrecognised output → rag (safe default)</text>
+  <rect x="60" y="272" width="560" height="98" rx="8" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <rect x="60" y="272" width="4" height="98" rx="2" fill="#4F46E5"/>
+  <text x="80" y="296" font-size="14" font-weight="700" fill="#1E2B3A">GraphAgent</text>
+  <text x="80" y="315" font-size="10.5" fill="#5B6B7C">build_graph(...) compiles a StateGraph from injected collaborators,</text>
+  <text x="80" y="330" font-size="10.5" fill="#5B6B7C">so every loop can be switched off and every part faked in tests.</text>
+  <text x="80" y="350" font-size="10" fill="#8B98A5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">run() · run_state() · run_traced() · stream_turn() · resume_turn()</text>
+  <text x="80" y="364" font-size="10" fill="#8B98A5">_turn_input() clears every per-turn channel; history is the one that carries.</text>
 
-  <!-- ============ BAND C · PIPELINES ============ -->
-  <rect x="40" y="380" width="860" height="284" rx="10" fill="#F5F7F9" stroke="#E2E8EE"/>
-  <text x="56" y="402" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.4">3 · EXECUTION PIPELINES</text>
+  <rect x="640" y="272" width="320" height="98" rx="8" fill="#F6F3FF" stroke="#7C3AED" stroke-width="1.4"/>
+  <text x="660" y="296" font-size="13" font-weight="700" fill="#5B21B6">MemorySaver checkpointer</text>
+  <text x="660" y="315" font-size="10" fill="#6D28D9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">JsonPlusSerializer(pickle_fallback=True)</text>
+  <text x="660" y="333" font-size="10.5" fill="#5B6B7C">A thread id is a conversation. It also</text>
+  <text x="660" y="348" font-size="10.5" fill="#5B6B7C">stores a turn paused at the SQL gate,</text>
+  <text x="660" y="363" font-size="10.5" fill="#5B6B7C">which is what makes resuming possible.</text>
 
-  <!-- branch split -->
-  <path d="M 470 326 L 470 352" stroke="#64748B" stroke-width="1.6" fill="none"/>
-  <path d="M 245 352 L 695 352" stroke="#64748B" stroke-width="1.6" fill="none"/>
-  <path d="M 245 352 L 245 408" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
-  <path d="M 695 352 L 695 408" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
-  <text x="330" y="345" font-size="10" font-weight="600" fill="#0F766E" text-anchor="middle">route = rag | both</text>
-  <text x="612" y="345" font-size="10" font-weight="600" fill="#B45309" text-anchor="middle">route = sql | both</text>
+  <!-- ============ BAND 3 · THE GRAPH ============ -->
+  <path d="M 340 370 L 340 404" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
 
+  <rect x="40" y="410" width="940" height="490" rx="10" fill="#F5F7F9" stroke="#E2E8EE"/>
+  <text x="56" y="432" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.4">3 · THE GRAPH — NODES, AND THE THREE LOOPS</text>
+  <text x="964" y="432" font-size="10.5" fill="#8B98A5" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">src/graph/nodes.py</text>
 
-  <!-- RAG -->
-  <rect x="60" y="414" width="370" height="234" rx="9" fill="#FFFFFF" stroke="#0F766E" stroke-width="1.6"/>
-  <text x="76" y="440" font-size="14" font-weight="700" fill="#0B5C55">RAGPipeline</text>
-  <text x="414" y="439" font-size="9.5" fill="#5A9E96" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">src/rag/pipeline.py</text>
-  <text x="76" y="456" font-size="10" fill="#8B98A5">conceptual questions — grounded in AWS documentation</text>
+  <!-- supervisor -->
+  <rect x="250" y="448" width="520" height="106" rx="8" fill="#EEF2FF" stroke="#4F46E5" stroke-width="1.6"/>
+  <text x="272" y="474" font-size="14" font-weight="700" fill="#3730A3">supervisor</text>
+  <text x="748" y="473" font-size="9.5" fill="#6366F1" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">src/graph/supervisor.py</text>
+  <text x="272" y="495" font-size="10.5" fill="#3F3F8A">One structured call returns tasks: [{agent, query}] and a mode —</text>
+  <text x="272" y="510" font-size="10.5" fill="#3F3F8A">who runs, whether they can run at once, and what each is asked.</text>
+  <text x="272" y="529" font-size="10.5" fill="#6D6DA8">On a follow-up the same call also resolves what the question refers to.</text>
+  <text x="272" y="545" font-size="10" fill="#8888C0">4 dispatches per turn · parks early wake-ups until every branch reports</text>
 
-  <rect x="76" y="470" width="338" height="52" rx="6" fill="#F0FAF8" stroke="#BFE0DA"/>
-  <circle cx="98" cy="496" r="9.5" fill="#0F766E"/>
-  <text x="98" y="500" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">1</text>
-  <text x="118" y="492" font-size="11.5" font-weight="600" fill="#0B5C55" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">retriever.invoke(query)</text>
-  <text x="118" y="508" font-size="10" fill="#5B6B7C">Chroma cosine similarity · k = 4 chunks</text>
+  <!-- dispatch arrows -->
+  <path d="M 380 554 L 380 586 L 250 586 L 250 606" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 640 554 L 640 586 L 770 586 L 770 606" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <text x="510" y="572" font-size="10" fill="#7A8A9A" text-anchor="middle">parallel fan-out, or sequential — and each specialist is asked only its own half</text>
 
-  <rect x="76" y="530" width="338" height="52" rx="6" fill="#F0FAF8" stroke="#BFE0DA"/>
-  <circle cx="98" cy="556" r="9.5" fill="#0F766E"/>
-  <text x="98" y="560" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">2</text>
-  <text x="118" y="552" font-size="11.5" font-weight="600" fill="#0B5C55" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">format_context(docs)</text>
-  <text x="118" y="568" font-size="10" fill="#5B6B7C">[title | service] + text + URL, joined by rules</text>
+  <!-- rag node -->
+  <rect x="66" y="612" width="368" height="130" rx="8" fill="#F0FAF8" stroke="#0F766E" stroke-width="1.5"/>
+  <text x="86" y="638" font-size="13.5" font-weight="700" fill="#0B5C55">rag — documentation specialist</text>
+  <text x="86" y="659" font-size="10.5" fill="#5B6B7C">RAGPipeline.retrieve() → generate()</text>
+  <text x="86" y="674" font-size="10.5" fill="#5B6B7C">answers only from what was retrieved, and cites it</text>
+  <rect x="86" y="686" width="328" height="44" rx="6" fill="#FFFFFF" stroke="#A7C7C2"/>
+  <text x="98" y="703" font-size="10" font-weight="600" fill="#0B5C55">loop · RetrievalGrader — grade, rewrite the query, search again</text>
+  <text x="98" y="720" font-size="10" fill="#8B98A5">≤ 2 attempts. Off in the shipped configuration; see the README.</text>
 
-  <rect x="76" y="590" width="338" height="52" rx="6" fill="#F0FAF8" stroke="#BFE0DA"/>
-  <circle cx="98" cy="616" r="9.5" fill="#0F766E"/>
-  <text x="98" y="620" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">3</text>
-  <text x="118" y="612" font-size="11.5" font-weight="600" fill="#0B5C55" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">llm.invoke(RAG_PROMPT)</text>
-  <text x="118" y="628" font-size="10" fill="#5B6B7C">context-only answer + [Source: title | service]</text>
+  <!-- sql node -->
+  <rect x="586" y="612" width="368" height="130" rx="8" fill="#FDF7EE" stroke="#B45309" stroke-width="1.5"/>
+  <text x="606" y="638" font-size="13.5" font-weight="700" fill="#92400E">sql — data specialist</text>
+  <text x="606" y="659" font-size="10.5" fill="#5B6B7C">SQLPipeline.generate_sql() → review() → execute() → explain()</text>
+  <text x="606" y="674" font-size="10.5" fill="#5B6B7C">a COUNT that comes back zero counts as having found nothing</text>
+  <rect x="606" y="686" width="328" height="44" rx="6" fill="#FFFFFF" stroke="#E4C49A"/>
+  <text x="618" y="703" font-size="10" font-weight="600" fill="#92400E">loop · SQLRepairer — rewrite from the failure and real values</text>
+  <text x="618" y="720" font-size="10" fill="#8B98A5">≤ 2 attempts. On by default — it is the one loop that paid.</text>
 
-  <!-- SQL -->
-  <rect x="510" y="414" width="370" height="234" rx="9" fill="#FFFFFF" stroke="#B45309" stroke-width="1.6"/>
-  <text x="526" y="440" font-size="14" font-weight="700" fill="#92400E">SQLPipeline</text>
-  <text x="864" y="439" font-size="9.5" fill="#C08A4A" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">src/sql/pipeline.py</text>
-  <text x="526" y="456" font-size="10" fill="#8B98A5">quantitative questions — aggregation over structured data</text>
+  <!-- self loops -->
+  <path d="M 60 660 L 46 660 L 46 712 L 60 712" stroke="#94A3B8" stroke-width="1.4" fill="none" marker-end="url(#arrowLoop)" stroke-dasharray="4 3"/>
+  <path d="M 960 660 L 974 660 L 974 712 L 960 712" stroke="#94A3B8" stroke-width="1.4" fill="none" marker-end="url(#arrowLoop)" stroke-dasharray="4 3"/>
 
-  <rect x="526" y="470" width="338" height="40" rx="6" fill="#FDF7EE" stroke="#EEDCC2"/>
-  <circle cx="548" cy="490" r="9.5" fill="#B45309"/>
-  <text x="548" y="494" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">1</text>
-  <text x="568" y="487" font-size="11.5" font-weight="600" fill="#92400E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">generate_sql()</text>
-  <text x="568" y="501" font-size="10" fill="#5B6B7C">schema in prompt · no body column · LIMIT 50</text>
+  <!-- human gate -->
+  <rect x="586" y="752" width="368" height="52" rx="7" fill="#FEF3F2" stroke="#DC2626" stroke-width="1.4"/>
+  <text x="606" y="772" font-size="11.5" font-weight="700" fill="#991B1B">human gate · interrupt()</text>
+  <text x="606" y="789" font-size="10" fill="#7F5252">a query the reviewer cannot classify, or one the repairer wrote</text>
+  <path d="M 770 742 L 770 748" stroke="#DC2626" stroke-width="1.4" fill="none" marker-end="url(#arrow)"/>
 
-  <rect x="526" y="514" width="338" height="40" rx="6" fill="#FDF7EE" stroke="#EEDCC2"/>
-  <circle cx="548" cy="534" r="9.5" fill="#B45309"/>
-  <text x="548" y="538" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">2</text>
-  <text x="568" y="531" font-size="11.5" font-weight="600" fill="#92400E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">validate_sql()</text>
-  <text x="568" y="545" font-size="10" fill="#5B6B7C">word-boundary regex guard · SELECT-only</text>
+  <!-- findings back to supervisor -->
+  <path d="M 110 612 L 110 501 L 244 501" stroke="#0F766E" stroke-width="1.5" fill="none" marker-end="url(#arrowBack)" stroke-dasharray="5 3"/>
+  <path d="M 910 612 L 910 501 L 776 501" stroke="#0F766E" stroke-width="1.5" fill="none" marker-end="url(#arrowBack)" stroke-dasharray="5 3"/>
+  <text x="118" y="494" font-size="10" font-weight="600" fill="#0F766E">findings</text>
+  <text x="902" y="494" font-size="10" font-weight="600" fill="#0F766E" text-anchor="end">findings</text>
+  <text x="510" y="634" font-size="10" font-weight="600" fill="#0F766E" text-anchor="middle">findings is an</text>
+  <text x="510" y="648" font-size="9.5" fill="#8B98A5" text-anchor="middle">accumulating</text>
+  <text x="510" y="661" font-size="9.5" fill="#8B98A5" text-anchor="middle">channel, so a</text>
+  <text x="510" y="674" font-size="9.5" fill="#8B98A5" text-anchor="middle">parallel write</text>
+  <text x="510" y="687" font-size="9.5" fill="#8B98A5" text-anchor="middle">never clobbers</text>
+  <text x="510" y="700" font-size="9.5" fill="#8B98A5" text-anchor="middle">the other one</text>
 
-  <rect x="526" y="558" width="338" height="40" rx="6" fill="#FDF7EE" stroke="#EEDCC2"/>
-  <circle cx="548" cy="578" r="9.5" fill="#B45309"/>
-  <text x="548" y="582" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">3</text>
-  <text x="568" y="575" font-size="11.5" font-weight="600" fill="#92400E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">execute_sql()</text>
-  <text x="568" y="589" font-size="10" fill="#5B6B7C">pandas.read_sql → DataFrame</text>
+  <!-- tail: synthesize / critic / remember -->
+  <path d="M 510 554 L 510 700 L 470 700" stroke="#4F46E5" stroke-width="1.6" fill="none" opacity="0"/>
 
-  <rect x="526" y="602" width="338" height="40" rx="6" fill="#FDF7EE" stroke="#EEDCC2"/>
-  <circle cx="548" cy="622" r="9.5" fill="#B45309"/>
-  <text x="548" y="626" font-size="10.5" font-weight="700" fill="#FFFFFF" text-anchor="middle">4</text>
-  <text x="568" y="619" font-size="11.5" font-weight="600" fill="#92400E" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">explain_results()</text>
-  <text x="568" y="633" font-size="10" fill="#5B6B7C">drop body · head(20) · truncate 4 000 chars</text>
+  <rect x="66" y="820" width="286" height="62" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="86" y="843" font-size="12.5" font-weight="700" fill="#1E2B3A">synthesize</text>
+  <text x="86" y="861" font-size="10" fill="#5B6B7C">Synthesizer.merge() — one answer, not two</text>
+  <text x="86" y="875" font-size="10" fill="#8B98A5">answers printed next to each other</text>
 
-  <!-- OpenAI spine -->
-  <path d="M 470 352 L 470 714" stroke="#94A3B8" stroke-width="1.4" stroke-dasharray="5 4" fill="none" marker-end="url(#arrowDash)"/>
-  <path d="M 430 556 L 470 556" stroke="#94A3B8" stroke-width="1.4" stroke-dasharray="5 4" fill="none"/>
-  <path d="M 510 556 L 470 556" stroke="#94A3B8" stroke-width="1.4" stroke-dasharray="5 4" fill="none"/>
-  <circle cx="470" cy="556" r="3.4" fill="#94A3B8"/>
-  <rect x="398" y="665" width="144" height="15" fill="#FFFFFF"/>
-  <text x="470" y="677" font-size="9.5" fill="#94A3B8" text-anchor="middle">HTTPS · model calls</text>
+  <rect x="378" y="820" width="286" height="62" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="398" y="843" font-size="12.5" font-weight="700" fill="#1E2B3A">critic</text>
+  <text x="398" y="861" font-size="10" fill="#5B6B7C">Faithfulness, moved into the request path</text>
+  <text x="398" y="875" font-size="10" fill="#8B98A5">≤ 1 redraft · off in the shipped configuration</text>
 
-  <!-- ============ BAND D · BACKING SERVICES ============ -->
-  <rect x="40" y="684" width="860" height="156" rx="10" fill="#F5F7F9" stroke="#E2E8EE"/>
-  <text x="56" y="706" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.4">4 · BACKING SERVICES</text>
+  <rect x="690" y="820" width="264" height="62" rx="7" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <text x="710" y="843" font-size="12.5" font-weight="700" fill="#1E2B3A">remember → END</text>
+  <text x="710" y="861" font-size="10" fill="#5B6B7C">files the finished turn in history</text>
+  <text x="710" y="875" font-size="10" fill="#8B98A5">the graph's single exit, so it runs once</text>
 
-  <path d="M 185 648 L 185 720" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
-  <text x="194" y="670" font-size="9.5" fill="#7A8A9A">embed + search</text>
-  <path d="M 755 648 L 755 720" stroke="#64748B" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
-  <text x="764" y="670" font-size="9.5" fill="#7A8A9A">read-only SELECT</text>
+  <path d="M 510 554 L 510 590 L 30 590 L 30 851 L 60 851" stroke="#4F46E5" stroke-width="1.5" fill="none" marker-end="url(#arrow)" stroke-dasharray="5 3"/>
+  <text x="48" y="782" font-size="10" fill="#6366F1">nothing left to dispatch</text>
 
-  <rect x="60" y="720" width="250" height="104" rx="8" fill="#F6F3FF" stroke="#7C3AED" stroke-width="1.5"/>
-  <text x="80" y="748" font-size="13.5" font-weight="700" fill="#5B21B6">ChromaDB</text>
-  <text x="80" y="768" font-size="10" fill="#6D28D9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">data/processed/chroma</text>
-  <text x="80" y="786" font-size="10.5" fill="#5B6B7C">collection: aws_docs · persistent</text>
-  <text x="80" y="803" font-size="10.5" fill="#5B6B7C">156 chunks from 18 AWS doc pages</text>
+  <path d="M 352 851 L 372 851" stroke="#64748B" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <path d="M 664 851 L 684 851" stroke="#64748B" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <path d="M 520 820 L 520 806 L 209 806 L 209 814" stroke="#94A3B8" stroke-width="1.4" fill="none" marker-end="url(#arrowLoop)" stroke-dasharray="4 3"/>
+  <text x="366" y="801" font-size="10" fill="#94A3B8" text-anchor="middle">not grounded — redraft against the sources</text>
 
-  <rect x="345" y="720" width="250" height="104" rx="8" fill="#FFFFFF" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="6 4"/>
-  <text x="365" y="748" font-size="13.5" font-weight="700" fill="#475569">OpenAI API</text>
-  <rect x="500" y="735" width="75" height="17" rx="8.5" fill="#EEF2F6"/>
-  <text x="537.5" y="747" font-size="8.5" font-weight="700" fill="#7A8A9A" text-anchor="middle" letter-spacing="0.8">EXTERNAL</text>
-  <text x="365" y="768" font-size="10.5" fill="#5B6B7C">gpt-4o-mini · temp 0 · timeout 60 s</text>
-  <text x="365" y="786" font-size="10.5" fill="#5B6B7C">text-embedding-3-small · timeout 30 s</text>
-  <text x="365" y="803" font-size="10.5" fill="#8B98A5">4 sequential calls on the both route</text>
+  <!-- ============ BAND 4 · BACKING SERVICES ============ -->
+  <rect x="40" y="920" width="940" height="112" rx="10" fill="#F5F7F9" stroke="#E2E8EE"/>
+  <text x="56" y="942" font-size="10.5" font-weight="700" fill="#8B98A5" letter-spacing="1.4">4 · BACKING SERVICES</text>
 
-  <rect x="630" y="720" width="250" height="104" rx="8" fill="#F6F3FF" stroke="#7C3AED" stroke-width="1.5"/>
-  <text x="650" y="748" font-size="13.5" font-weight="700" fill="#5B21B6">SQLite</text>
-  <text x="650" y="768" font-size="10" fill="#6D28D9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">data/processed/issues.db</text>
-  <text x="650" y="786" font-size="10.5" fill="#5B6B7C">issues — 283 rows</text>
-  <text x="650" y="803" font-size="10.5" fill="#5B6B7C">stackoverflow — 15 462 rows</text>
+  <rect x="60" y="954" width="286" height="62" rx="7" fill="#F6F3FF" stroke="#7C3AED" stroke-width="1.3"/>
+  <text x="80" y="977" font-size="12.5" font-weight="700" fill="#5B21B6">ChromaDB</text>
+  <text x="80" y="994" font-size="10" fill="#5B6B7C">data/processed/chroma · aws_docs</text>
+  <text x="80" y="1008" font-size="10" fill="#8B98A5">156 chunks from 18 AWS doc pages</text>
+
+  <rect x="368" y="954" width="286" height="62" rx="7" fill="#F6F3FF" stroke="#7C3AED" stroke-width="1.3"/>
+  <text x="388" y="977" font-size="12.5" font-weight="700" fill="#5B21B6">SQLite</text>
+  <text x="388" y="994" font-size="10" fill="#5B6B7C">data/processed/issues.db · read-only</text>
+  <text x="388" y="1008" font-size="10" fill="#8B98A5">issues 283 rows · stackoverflow 15,462 rows</text>
+
+  <rect x="676" y="954" width="284" height="62" rx="7" fill="#FFFFFF" stroke="#1E2B3A" stroke-width="1.4"/>
+  <text x="696" y="977" font-size="12.5" font-weight="700" fill="#1E2B3A">OpenAI API <tspan font-size="9" font-weight="700" fill="#94A3B8">EXTERNAL</tspan></text>
+  <text x="696" y="994" font-size="10" fill="#5B6B7C">gpt-4o-mini · text-embedding-3-small</text>
+  <text x="696" y="1008" font-size="10" fill="#8B98A5">3.63 chat calls per question, median 2.93 s</text>
 
   <!-- ============ LEGEND ============ -->
-  <path d="M 40 858 L 900 858" stroke="#E2E8EE" stroke-width="1"/>
-  <path d="M 60 878 L 92 878" stroke="#64748B" stroke-width="1.6" marker-end="url(#arrow)"/>
-  <text x="100" y="882" font-size="10" fill="#7A8A9A">in-process call</text>
-
-  <path d="M 210 878 L 242 878" stroke="#94A3B8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#arrowDash)"/>
-  <text x="250" y="882" font-size="10" fill="#7A8A9A">network call to an external service</text>
-
-  <rect x="470" y="871" width="14" height="14" rx="3" fill="#F6F3FF" stroke="#7C3AED"/>
-  <text x="492" y="882" font-size="10" fill="#7A8A9A">local persistent store</text>
-
-  <rect x="626" y="871" width="14" height="14" rx="3" fill="#EEF2FF" stroke="#4F46E5"/>
-  <text x="648" y="882" font-size="10" fill="#7A8A9A">LLM decision point</text>
-
+  <path d="M 40 1046 L 980 1046" stroke="#E2E8EE"/>
+  <rect x="60" y="1054" width="14" height="10" rx="2" fill="#EEF2FF" stroke="#4F46E5"/>
+  <text x="82" y="1063" font-size="10" fill="#7A8A9A">decides</text>
+  <rect x="160" y="1054" width="14" height="10" rx="2" fill="#F0FAF8" stroke="#0F766E"/>
+  <text x="182" y="1063" font-size="10" fill="#7A8A9A">documentation</text>
+  <rect x="292" y="1054" width="14" height="10" rx="2" fill="#FDF7EE" stroke="#B45309"/>
+  <text x="314" y="1063" font-size="10" fill="#7A8A9A">data</text>
+  <rect x="376" y="1054" width="14" height="10" rx="2" fill="#FEF3F2" stroke="#DC2626"/>
+  <text x="398" y="1063" font-size="10" fill="#7A8A9A">stops for a person</text>
+  <path d="M 528 1059 L 566 1059" stroke="#94A3B8" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text x="574" y="1063" font-size="10" fill="#7A8A9A">a loop with a ceiling</text>
+  <text x="980" y="1038" font-size="9.5" fill="#B6C2CD" text-anchor="end">v1 — the linear router and two pipelines — is still in the tree as the comparison baseline: AGENT_IMPL=v1.</text>
 </svg>

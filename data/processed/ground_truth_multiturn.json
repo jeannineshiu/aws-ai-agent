@@ -1,0 +1,414 @@
+[
+  {
+    "id": "mt01",
+    "kind": "pronoun",
+    "note": "The plainest case: one entity in scope, one pronoun pointing at it.",
+    "turns": [
+      {
+        "question": "What is Amazon Bedrock?",
+        "type": "rag",
+        "expected_agents": [
+          "rag"
+        ],
+        "expected_order": "single"
+      },
+      {
+        "question": "How does it stop harmful content from reaching users?",
+        "type": "rag",
+        "expected_agents": [
+          "rag"
+        ],
+        "expected_order": "single",
+        "expected_standalone": "How does Amazon Bedrock stop harmful content from reaching users?",
+        "must_mention": [
+          [
+            "bedrock"
+          ]
+        ],
+        "must_not_mention": [
+          "sagemaker",
+          "rekognition",
+          "comprehend",
+          "lambda"
+        ],
+        "answer_must_mention": [
+          [
+            "guardrail"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "mt02",
+    "kind": "pronoun",
+    "note": "Resolution and a route switch in the same turn. Turn one is documentation, turn two is a count about the same subject - the case where last turn's findings leaking would show up as route 'both'.",
+    "turns": [
+      {
+        "question": "What is Amazon Rekognition?",
+        "type": "rag",
+        "expected_agents": [
+          "rag"
+        ],
+        "expected_order": "single"
+      },
+      {
+        "question": "How many Stack Overflow questions are tagged with it?",
+        "type": "sql",
+        "expected_agents": [
+          "sql"
+        ],
+        "expected_order": "single",
+        "expected_standalone": "How many Stack Overflow questions are tagged amazon-rekognition?",
+        "must_mention": [
+          [
+            "rekognition"
+          ]
+        ],
+        "must_not_mention": [
+          "sagemaker",
+          "bedrock",
+          "comprehend"
+        ],
+        "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-rekognition>%'",
+        "answer_must_mention": [
+          [
+            "79"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "mt03",
+    "kind": "ellipsis",
+    "note": "The predicate is omitted entirely. 'And Rekognition?' carries no verb, so a resolution that only substitutes a pronoun has nothing to substitute - the whole question has to be reconstructed.",
+    "turns": [
+      {
+        "question": "How many Stack Overflow questions are tagged amazon-bedrock?",
+        "type": "sql",
+        "expected_agents": [
+          "sql"
+        ],
+        "expected_order": "single",
+        "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-bedrock>%'"
+      },
+      {
+        "question": "And Rekognition?",
+        "type": "sql",
+        "expected_agents": [
+          "sql"
+        ],
+        "expected_order": "single",
+        "expected_standalone": "How many Stack Overflow questions are tagged amazon-rekognition?",
+        "must_mention": [
+          [
+            "rekognition"
+          ],
+          [
+            "how many",
+            "count",
+            "number of"
+          ]
+        ],
+        "must_not_mention": [
+          "bedrock"
+        ],
+        "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-rekognition>%'",
+        "answer_must_mention": [
+          [
+            "79"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "mt04",
+    "kind": "answer-reference",
+    "note": "The referent is in the assistant's answer, not in the user's question. Nothing in the transcript's user turns says 'SageMaker'.",
+    "depends_on_turn1": true,
+    "turns": [
+      {
+        "question": "Which is asked about most on Stack Overflow: SageMaker, Bedrock, Rekognition or Comprehend?",
+        "type": "sql",
+        "expected_agents": [
+          "sql"
+        ],
+        "expected_order": "single",
+        "ground_truth_sql": "SELECT 'sagemaker', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-sagemaker>%' UNION ALL SELECT 'bedrock', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-bedrock>%' UNION ALL SELECT 'rekognition', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-rekognition>%' UNION ALL SELECT 'comprehend', COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-comprehend>%' ORDER BY 2 DESC LIMIT 1"
+      },
+      {
+        "question": "What is it used for?",
+        "type": "rag",
+        "expected_agents": [
+          "rag"
+        ],
+        "expected_order": "single",
+        "expected_standalone": "What is Amazon SageMaker used for?",
+        "must_mention": [
+          [
+            "sagemaker"
+          ]
+        ],
+        "must_not_mention": [
+          "bedrock",
+          "rekognition",
+          "comprehend"
+        ],
+        "answer_must_mention": [
+          [
+            "machine learning",
+            "ml model",
+            "models"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "mt05",
+    "kind": "topic-switch",
+    "control": true,
+    "note": "Control. The follow-up refers to nothing; a supervisor that resolves everything will drag Comprehend into a question about Lambda.",
+    "turns": [
+      {
+        "question": "What is Amazon Comprehend?",
+        "type": "rag",
+        "expected_agents": [
+          "rag"
+        ],
+        "expected_order": "single"
+      },
+      {
+        "question": "What is AWS Lambda?",
+        "type": "rag",
+        "expected_agents": [
+          "rag"
+        ],
+        "expected_order": "single",
+        "expected_standalone": "What is AWS Lambda?",
+        "must_mention": [
+          [
+            "lambda"
+          ]
+        ],
+        "must_not_mention": [
+          "comprehend"
+        ],
+        "answer_must_mention": [
+          [
+            "serverless",
+            "compute"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "mt06",
+    "kind": "topic-switch",
+    "control": true,
+    "note": "Control, with a measurable cost of failure: over-resolution filters the repo ranking to SageMaker and returns aws/sagemaker-python-sdk (53 open) instead of aws-neuron/aws-neuron-sdk (79 open).",
+    "turns": [
+      {
+        "question": "What is Amazon SageMaker?",
+        "type": "rag",
+        "expected_agents": [
+          "rag"
+        ],
+        "expected_order": "single"
+      },
+      {
+        "question": "Which GitHub repo in the database has the most open issues?",
+        "type": "sql",
+        "expected_agents": [
+          "sql"
+        ],
+        "expected_order": "single",
+        "expected_standalone": "Which GitHub repo in the database has the most open issues?",
+        "must_mention": [
+          [
+            "repo",
+            "repositor"
+          ]
+        ],
+        "must_not_mention": [
+          "sagemaker"
+        ],
+        "ground_truth_sql": "SELECT repo FROM issues WHERE state = 'open' GROUP BY repo ORDER BY COUNT(*) DESC LIMIT 1",
+        "answer_must_mention": [
+          [
+            "neuron"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "mt07",
+    "kind": "pronoun",
+    "note": "One resolution feeding two specialists. Both halves name the same subject once resolved, so the dispatch is parallel.",
+    "turns": [
+      {
+        "question": "What is Amazon SageMaker?",
+        "type": "rag",
+        "expected_agents": [
+          "rag"
+        ],
+        "expected_order": "single"
+      },
+      {
+        "question": "How many Stack Overflow questions are tagged with it, and how does training work in it?",
+        "type": "both",
+        "expected_agents": [
+          "sql",
+          "rag"
+        ],
+        "expected_order": "parallel",
+        "expected_standalone": "How many Stack Overflow questions are tagged amazon-sagemaker, and how does training work in Amazon SageMaker?",
+        "must_mention": [
+          [
+            "sagemaker"
+          ]
+        ],
+        "must_not_mention": [
+          "bedrock",
+          "rekognition",
+          "comprehend"
+        ],
+        "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-sagemaker>%'",
+        "answer_must_mention": [
+          [
+            "train"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "mt08",
+    "kind": "ellipsis",
+    "note": "'them' refers to a set the assistant listed, and the turn is sequential on top of that: which project to explain is unknown until the ranking is queried.",
+    "depends_on_turn1": true,
+    "turns": [
+      {
+        "question": "Which GitHub repositories are in the issue database?",
+        "type": "sql",
+        "expected_agents": [
+          "sql"
+        ],
+        "expected_order": "single",
+        "ground_truth_sql": "SELECT COUNT(DISTINCT repo) FROM issues"
+      },
+      {
+        "question": "Which of them has the most open ones, and what is that project for?",
+        "type": "both",
+        "expected_agents": [
+          "sql",
+          "rag"
+        ],
+        "expected_order": "sequential",
+        "expected_standalone": "Which of the repositories in the issue database has the most open issues, and what is that project for?",
+        "must_mention": [
+          [
+            "repo",
+            "repositor"
+          ]
+        ],
+        "must_not_mention": [],
+        "ground_truth_sql": "SELECT repo FROM issues WHERE state = 'open' GROUP BY repo ORDER BY COUNT(*) DESC LIMIT 1",
+        "answer_must_mention": [
+          [
+            "neuron"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "mt09",
+    "kind": "ordinal",
+    "note": "Two candidates in scope and an ordinal picking one of them. The wrong pick is a plausible answer to a different question, which is the failure mode a route-level metric cannot see.",
+    "turns": [
+      {
+        "question": "Compare Amazon Rekognition and Amazon Comprehend.",
+        "type": "rag",
+        "expected_agents": [
+          "rag"
+        ],
+        "expected_order": "single"
+      },
+      {
+        "question": "How many Stack Overflow questions is the second one tagged in?",
+        "type": "sql",
+        "expected_agents": [
+          "sql"
+        ],
+        "expected_order": "single",
+        "expected_standalone": "How many Stack Overflow questions are tagged amazon-comprehend?",
+        "must_mention": [
+          [
+            "comprehend"
+          ]
+        ],
+        "must_not_mention": [
+          "rekognition"
+        ],
+        "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-comprehend>%'",
+        "answer_must_mention": [
+          [
+            "32"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "mt10",
+    "kind": "ellipsis",
+    "note": "Everything except the changed constraint is omitted. The subject, the metric and the source all have to be carried over, and only the year replaced.",
+    "turns": [
+      {
+        "question": "How many Stack Overflow questions tagged amazon-sagemaker were asked in 2023?",
+        "type": "sql",
+        "expected_agents": [
+          "sql"
+        ],
+        "expected_order": "single",
+        "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-sagemaker>%' AND created_at >= '2023-01-01' AND created_at < '2024-01-01'"
+      },
+      {
+        "question": "What about 2024?",
+        "type": "sql",
+        "expected_agents": [
+          "sql"
+        ],
+        "expected_order": "single",
+        "expected_standalone": "How many Stack Overflow questions tagged amazon-sagemaker were asked in 2024?",
+        "must_mention": [
+          [
+            "sagemaker"
+          ],
+          [
+            "2024"
+          ],
+          [
+            "how many",
+            "count",
+            "number of"
+          ]
+        ],
+        "must_not_mention": [
+          "2023"
+        ],
+        "ground_truth_sql": "SELECT COUNT(*) FROM stackoverflow WHERE tags LIKE '%<amazon-sagemaker>%' AND created_at >= '2024-01-01' AND created_at < '2025-01-01'",
+        "answer_must_mention": [
+          [
+            "198"
+          ]
+        ]
+      }
+    ]
+  }
+]

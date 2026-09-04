@@ -2,6 +2,7 @@
 import os
 import json
 import glob
+import uuid
 import streamlit as st
 from src.agent.agent import AWSAgent
 
@@ -12,12 +13,36 @@ st.set_page_config(
     layout="wide",
 )
 
+# Which implementation to run. The graph is the default from Phase 3: the
+# evaluation says it answers better (relevancy 0.487 -> 0.724, adversarial SQL
+# 60% -> 100%), and it is the only one of the two that can hold a conversation.
+# Set AGENT_IMPL=v1 to get the linear pipeline back for comparison.
+AGENT_IMPL = os.getenv("AGENT_IMPL", "graph").lower()
+CONFIRM_SQL = os.getenv("CONFIRM_SQL", "1") not in ("0", "false", "no")
+
+
 # Initialize agent (cached so it only loads once)
 @st.cache_resource
-def load_agent():
+def load_agent(impl: str):
+    if impl == "graph":
+        from src.graph.builder import GraphAgent
+        # memory=True compiles a checkpointer, which is what makes a follow-up
+        # question a follow-up rather than a fresh one.
+        # confirm_sql stops a query the reviewer cannot classify, or one the
+        # repairer wrote rather than the question, and puts it to the person
+        # sitting here. The app is the only place with someone to ask.
+        return GraphAgent(memory=True, confirm_sql=CONFIRM_SQL)
     return AWSAgent()
 
-agent = load_agent()
+agent = load_agent(AGENT_IMPL)
+IS_GRAPH = AGENT_IMPL == "graph"
+
+if IS_GRAPH:
+    from src.graph.builder import project
+    from src.graph.narrate import describe
+
+
+
 
 # --- Sidebar ---
 with st.sidebar:
@@ -51,7 +76,16 @@ with st.sidebar:
                 st.session_state.selected_question = q
 
     st.divider()
-    st.caption("Built with LangChain · ChromaDB · OpenAI · SQLite")
+    if IS_GRAPH and st.button("🔄 New conversation", width="stretch"):
+        # A thread is a conversation. Dropping the transcript without dropping
+        # the thread would leave the agent resolving "it" against turns the
+        # user can no longer see.
+        st.session_state.messages = []
+        for key in ("thread_id", "awaiting_sql", "resume_with"):
+            st.session_state.pop(key, None)
+        st.rerun()
+
+    st.caption("Built with LangGraph · ChromaDB · OpenAI · SQLite")
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -68,6 +102,11 @@ with tab_chat:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+    # The agent is @st.cache_resource, so one checkpointer is shared by every
+    # browser session. The thread id is what keeps those conversations apart.
+    if IS_GRAPH and "thread_id" not in st.session_state:
+        st.session_state.thread_id = uuid.uuid4().hex
+
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -80,6 +119,10 @@ with tab_chat:
                 with st.expander(f"View sources ({len(msg['citations'])})"):
                     for c in msg["citations"]:
                         st.markdown(f"- [{c['title']}]({c['url']}) — `{c['service']}`")
+            if msg.get("steps"):
+                with st.expander(f"How this was answered ({len(msg['steps'])} steps)"):
+                    for line in msg["steps"]:
+                        st.markdown(f"- {line}")
 
     if "selected_question" in st.session_state:
         question = st.session_state.pop("selected_question")
@@ -89,25 +132,85 @@ with tab_chat:
     if user_input:
         st.session_state.pending_question = user_input
 
-    if "pending_question" in st.session_state:
-        question = st.session_state.pop("pending_question")
+    # A turn parked at the confirmation gate, rendered on its own rerun: a
+    # button click is only visible to the script run after the one that drew it.
+    if "awaiting_sql" in st.session_state and "resume_with" not in st.session_state:
+        held = st.session_state.awaiting_sql
+        with st.chat_message("assistant"):
+            st.warning(f"Before I run this — {held['payload']['reason']}.")
+            st.code(held["payload"]["sql"], language="sql")
+            st.caption(f"Written to answer: *{held['payload']['question']}*")
+            run_it, skip_it = st.columns(2)
+            if run_it.button("Run it", type="primary", width="stretch"):
+                st.session_state.resume_with = True
+                st.rerun()
+            if skip_it.button("Answer without it", width="stretch"):
+                st.session_state.resume_with = False
+                st.rerun()
+        st.stop()
 
-        with st.chat_message("user"):
-            st.markdown(question)
-        st.session_state.messages.append({"role": "user", "content": question})
+    if "pending_question" in st.session_state or "resume_with" in st.session_state:
+        resuming = "resume_with" in st.session_state
+
+        if resuming:
+            held = st.session_state.pop("awaiting_sql")
+            question, steps = held["question"], list(held["steps"])
+            decision = st.session_state.pop("resume_with")
+            steps.append("Ran the held query" if decision
+                         else "Skipped the held query")
+            events = agent.resume_turn(decision, thread_id=st.session_state.thread_id)
+        else:
+            question, steps = st.session_state.pop("pending_question"), []
+            with st.chat_message("user"):
+                st.markdown(question)
+            st.session_state.messages.append({"role": "user", "content": question})
+            events = None
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    result = agent.run(question)
-                except Exception as e:
-                    st.error(f"Error: {e}")
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": f"Error: {e}",
-                        "data": None, "sql": None, "citations": [],
-                    })
-                    st.stop()
+            try:
+                if IS_GRAPH:
+                    thread_id = st.session_state.thread_id
+                    if events is None:
+                        # Narrate the turn as it happens. The interesting
+                        # decisions - who was dispatched, what was retried, what
+                        # was sent back to be redrafted - are all over before the
+                        # answer exists, and a spinner shows none of them.
+                        events = agent.stream_turn(question, thread_id=thread_id)
+
+                    with st.status("Working…", expanded=True) as status:
+                        for line in steps:
+                            st.markdown(f"- {line}")
+                        for node, update in events:
+                            line = describe(node, update, question)
+                            if line:
+                                steps.append(line)
+                                st.markdown(f"- {line}")
+
+                        held = agent.pending_confirmation(thread_id)
+                        if held:
+                            status.update(label="Waiting for you",
+                                          state="complete", expanded=False)
+                            st.session_state.awaiting_sql = {
+                                "question": question, "payload": held, "steps": steps}
+                            st.rerun()
+
+                        status.update(label=f"Answered in {len(steps)} steps",
+                                      state="complete", expanded=False)
+
+                    # The turn was streamed for the display above; the answer
+                    # itself comes from the checkpointer, already assembled.
+                    result = project(question, agent.state_of(thread_id))
+                else:
+                    with st.spinner("Thinking..."):
+                        result = agent.run(question)
+            except Exception as e:
+                st.error(f"Error: {e}")
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Error: {e}",
+                    "data": None, "sql": None, "citations": [], "steps": steps,
+                })
+                st.stop()
 
             route_colors = {"rag": "🟢", "sql": "🔵", "both": "🟣"}
             route_emoji = route_colors.get(result["route"], "⚪")
@@ -123,6 +226,10 @@ with tab_chat:
                 with st.expander(f"View sources ({len(result['citations'])})"):
                     for c in result["citations"]:
                         st.markdown(f"- [{c['title']}]({c['url']}) — `{c['service']}`")
+            if steps:
+                with st.expander(f"How this was answered ({len(steps)} steps)"):
+                    for line in steps:
+                        st.markdown(f"- {line}")
 
         st.session_state.messages.append({
             "role": "assistant",
@@ -130,6 +237,7 @@ with tab_chat:
             "data": result.get("data"),
             "sql": result.get("sql"),
             "citations": result.get("citations", []),
+            "steps": steps,
         })
 
 
