@@ -8,15 +8,75 @@ Built on LangGraph. Every claim about it below has a number behind it, and the h
 
 ---
 
+## What this solves, and why it is a multi-agent graph
+
+### The problem
+
+Two kinds of question arrive in the same box, and they need incompatible machinery.
+
+*"How does SageMaker Model Monitor detect data drift?"* is answered by prose that someone already wrote. You find it by meaning — embed the question, retrieve the nearest passages, generate from them.
+
+*"Which repo has the most open issues?"* is answered by a number that exists nowhere until it is computed. There is no passage to retrieve. You need an aggregate over rows.
+
+A vector search cannot count. A `GROUP BY` cannot explain. And the questions people actually ask do not respect the boundary:
+
+> *"Which service has the most unanswered questions, and what does it do?"*
+
+That one cannot even be **split in advance**, because the thing to look up in the documentation is the answer to the query. The two halves are ordered, and the order is a fact about the question rather than a preference.
+
+So the problem is not "build a RAG bot". It is: given one question, decide what kind of work it needs, get the right sources involved in the right order, ask each of them the right thing — and be able to tell whether that decision was correct, on questions nobody has hand-checked.
+
+### Why not the two simpler shapes
+
+**One LLM with both the context and the schema.** It conflates two reasoning patterns and does both worse. Worse for this project: there is one call and one output, so there is no decision to observe. When it answers the wrong question you find out from a user, not from a metric.
+
+**A router and two pipelines.** This is the honest baseline, it is still in the tree (`AGENT_IMPL=v1`), and every number below is measured against it. Its ceiling is structural: a classification can only say **who**. Three things it cannot say each turned out to be a real, measured defect —
+
+| What a router cannot express | What it cost | Fixed by |
+|---|---|---|
+| that one specialist needs the other's answer first | order accuracy 87%, answer relevancy 0.487 — the retriever was searching a compound sentence that appears in no document | `mode: sequential`, and a refine step |
+| what each specialist is being asked | SQL accuracy 60% — a count arriving with the documentation half attached came back filtered by it: 541 rows for an answer of 1,840 | one plan carrying `{agent, query}` per specialist |
+| what to do when a specialist finds nothing | adversarial SQL 60% — `tags LIKE '%<bedrock>%'` is valid SQL against a tag written `<amazon-bedrock>`, so it returns zero, and the zero was reported as the answer | a repair loop that treats "found nothing" as a failure signal |
+
+The graph is not architecture for its own sake. Every node and every edge in it is there because the simpler shape produced a wrong answer somebody can point at.
+
+### What the multi-agent shape buys
+
+1. **Decomposition — each specialist answers a question it can actually answer.** Splitting a two-part question raised SQL accuracy 60% → 90% and *lowered* cost (3.73 → 3.63 calls per query, p50 3.21s → 2.93s), because a query that was never going to work no longer pays a repair call to be rescued.
+2. **Ordering as a first-class decision.** Answer relevancy 0.487 → 0.699 and order accuracy 87% → 100%, for 0.56 of a call per query.
+3. **Correction while it can still change the answer.** The loops are evaluation metrics moved out of the offline report and into the request path. An offline score tells you last night's answers were ungrounded; a loop can do something about tonight's. Adversarial SQL 60% → 100%, and it only fires on failure, so a query that works costs nothing extra.
+4. **The decision is an object, so it can be scored.** Delegation accuracy and order accuracy exist only because "who runs, and in what relation" is an explicit, loggable plan rather than a branch inside a prompt. This is the property that compounds: v1's two-specialist route carried a correctness bug for the entire life of the project because nothing in the harness could see the decision to check it.
+5. **Every part is separately switchable, so its cost is measurable — and two of the three loops were switched off.** Grading and criticism cost 2.2 extra calls per query and 1.36s of p50 latency to move faithfulness by 0.006, inside the judge's noise, while losing 0.114 of answer relevancy. They stay in the tree behind a flag. Being able to *cut* a component on evidence is worth as much as being able to add one.
+6. **There is a specific place to put a human.** Not a blanket "approve this SQL" dialog, which teaches people to click through it, but an `interrupt()` at the two decisions the code genuinely cannot make: a query the reviewer cannot classify, and a query the repairer rewrote rather than the one the question produced.
+7. **Conversation state is explicit about what carries.** Exactly one channel survives a turn; every other one is reset by name. Resolving a follow-up is also *cheaper* than not resolving it — 3.20 calls per turn against 3.40 — because an unresolved question produces a query for a service nobody named, which returns zero and spends a repair call.
+
+**What it costs, stated plainly:** 0.76 more LLM calls per question than v1 (2.87 → 3.63) and 0.38s more p50 latency, for a system with more moving parts to understand. The argument is not that the extra calls are free. It is that they are counted, attributed, and reported next to the quality they bought — which is how two of the three loops came to be removed.
+
+### Where this shape transfers
+
+Nothing in the graph's control flow — dispatch, parallel fan-in, the loops and their ceilings, the checkpointing, the human gate — knows what AWS is. The domain lives in the prompts and in the two pipelines; the only executable line that knows the schema is the repairer's list of columns worth probing. The same structure fits anywhere the same problem shape appears: **prose and numbers, in one question, with an audience that needs the answer to be right.**
+
+- **Internal "ask the company" assistant** — the wiki and the design docs on one side, the data warehouse on the other, and questions like "how many teams adopted this service last quarter, and what does the migration guide say to do first?"
+- **Customer support** — product documentation plus the customer's own account data. The human gate moves to the obvious place: before any write, refund, or entitlement change.
+- **On-call and observability** — runbooks as the documentation specialist, metric and log queries as the data specialist. The sequential mode is the common case: find the failing service first, then look up what to do about it.
+- **Finance, BI and compliance** — filings, policy text and contracts alongside the numbers they are about, where an answer that cites the wrong half is worse than no answer.
+
+Extending it is bounded work rather than a rewrite:
+
+- **A third specialist** is a node, an entry in the plan schema, and a paragraph in the planning prompt. The obvious one here is already named under [Known gaps](#known-gaps) — the AWS documentation corpus contains nothing about `aws-neuron/aws-neuron-sdk`, so the honest answer to "what is that project for?" is currently silence; a repository-README or code-search specialist closes it.
+- **Swapping the stores** touches the two pipelines and nothing else: any retriever for Chroma, a warehouse for SQLite.
+- **Production multi-user** needs a durable checkpointer in place of the in-process one, and query results stored as rows rather than pickled.
+- **The evaluation harness is the part worth stealing.** Delegation accuracy, order accuracy, per-question call and token cost, and the with-history / no-history ablation are all domain-independent. They are what turn "the agent seems better" into a number that can lose.
+
+---
+
 ## Architecture
 
 <p align="center">
   <img src="assets/architecture.svg" alt="System architecture — interface, orchestration, the graph and its loops, and the backing services" width="100%">
 </p>
 
-Layers 2–4 run inside one Python process; the only network dependency at query time is the OpenAI API.
-
-The system is a **graph, not a pipeline**. A router that classifies a question into one of three buckets can say *which* pipelines to run, and nothing else: not whether one of them needs the other's answer first, not what each of them should actually be asked, and not what to do when one of them comes back with nothing. Each of those turned out to be a measurable defect, and each is a node or an edge here.
+Layers 2–4 run inside one Python process; the only network dependency at query time is the OpenAI API. Each of the three gaps in the table above is a node or an edge in this diagram.
 
 **Data sources:**
 - AWS documentation (SageMaker, Bedrock, Rekognition, Comprehend, Lambda) — 18 pages, 156 chunks

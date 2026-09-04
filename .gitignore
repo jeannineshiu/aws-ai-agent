@@ -13,3 +13,7 @@ data/processed/*
 !data/processed/ground_truth_multiturn.json
 *.db
 .chroma/
+
+# Local working notes, spanning several projects. Scratch, not this repo's
+# record — the phase write-ups that belong to the project are in README.md.
+notes/
