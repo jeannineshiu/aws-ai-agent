@@ -180,13 +180,15 @@ aws-ai-agent/
 │   ├── graph/                # the shipped agent
 │   │   ├── builder.py        #   StateGraph wiring + the GraphAgent facade
 │   │   ├── state.py          #   AgentState, and the findings channel that merges
-│   │   ├── nodes.py          #   supervisor / rag / sql / synthesize / critic / remember
+│   │   ├── nodes.py          #   supervisor / prefetch / rag / sql / synthesize / critic / remember
 │   │   ├── supervisor.py     #   who runs, in what relation, and what each is asked
 │   │   ├── synthesizer.py    #   cross-specialist merge, and the critic's redraft
 │   │   ├── repair.py         #   rewrites a failed query from the failure and real values
 │   │   ├── grader.py         #   retrieval relevance check + query rewrite
 │   │   ├── critic.py         #   groundedness gate before the answer ships
-│   │   └── narrate.py        #   one streamed node update -> one line for the UI
+│   │   └── narrate.py        #   one node update -> one line for the UI, and which
+│   │                         #   tokens are the answer rather than working notes
+│   ├── tags.py               # marks the one model call per turn that writes prose
 │   ├── rag/pipeline.py       # retrieve + generate
 │   ├── sql/pipeline.py       # text-to-SQL + execute + explain
 │   ├── sql/validate.py       # allow / confirm / reject for generated SQL

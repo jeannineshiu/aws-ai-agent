@@ -13,6 +13,8 @@ the mistakes are silent: a wrong branch shows a plausible sentence about work
 that never happened.
 """
 
+from src.tags import ANSWER
+
 NAMES = {"rag": "documentation", "sql": "data"}
 
 
@@ -80,3 +82,42 @@ def describe(node: str, update: dict | None, question: str = "") -> str | None:
         return None
 
     return None                      # remember, and anything added after it
+
+
+# ── which tokens are the answer ───────────────────────────────────────────────
+#
+# A turn makes several model calls and the app types out exactly one of them.
+# Picking it needs two facts, and both are on the stream already: whether this
+# turn is going to end in a merge, and which call produced the token.
+
+def expects_a_merge(update: dict | None) -> bool | None:
+    """Will this dispatch end with the synthesizer writing the answer?
+
+    None when the update is not a dispatch — a parked wake-up or the hand-off to
+    synthesis — so a caller can keep looking rather than take silence for a no.
+
+    Two specialists means `synthesize` merges their findings, and the merge is
+    the answer; one means the specialist's own prose is passed through untouched
+    and *that* is the answer. The count is `awaiting` plus `plan` because a
+    sequential plan dispatches its two specialists one at a time: at the first
+    dispatch only one of them is being awaited, and the other is still queued.
+    """
+    if not isinstance(update, dict):
+        return None
+    awaiting = update.get("awaiting") or []
+    if not awaiting:
+        return None
+    return len(awaiting) + len(update.get("plan") or []) > 1
+
+
+def carries_the_answer(node: str, tags, merge_expected: bool) -> bool:
+    """Is a token from this call part of the answer the user will read?
+
+    The tag alone is not enough. On a two-specialist turn both specialists write
+    prose and both are tagged, but neither is what the user gets - the merge
+    rewrites them into one answer, and typing all three out in turn would show
+    two paragraphs that are then replaced.
+    """
+    if ANSWER not in (tags or ()):
+        return False
+    return not (merge_expected and node != "synthesize")

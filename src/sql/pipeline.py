@@ -7,6 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
 
 from src.sql.validate import Review, review
+from src.tags import ANSWER
 
 load_dotenv()
 
@@ -136,7 +137,9 @@ class SQLPipeline:
             question=question,
             results=results_str,
         )
-        response = self.llm.invoke(prompt)
+        # Tagged, and generate_sql above deliberately is not: on a sql-only route
+        # this is the call that writes what the user reads.
+        response = self.llm.invoke(prompt, config={"tags": [ANSWER]})
         return response.content
 
     def run(self, question: str) -> dict:

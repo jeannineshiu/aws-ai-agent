@@ -20,6 +20,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 
+from src.tags import ANSWER
+
 load_dotenv()
 
 SYNTHESIS_PROMPT = ChatPromptTemplate.from_template("""
@@ -98,7 +100,7 @@ class Synthesizer:
                 question=question,
                 rag_answer=rag_finding.get("answer", ""),
                 sql_answer=sql_finding.get("answer", ""),
-            ))
+            ), config={"tags": [ANSWER]})
             text = self.strip_placeholder_citations(response.content or "")
             if text:
                 return text
@@ -123,7 +125,7 @@ class Synthesizer:
             response = self.llm.invoke(REVISION_PROMPT.format_messages(
                 question=question, context=joined,
                 answer=answer[:4000], critique=critique or "unspecified",
-            ))
+            ), config={"tags": [ANSWER]})
             text = self.strip_placeholder_citations(response.content or "")
             if text:
                 return text
