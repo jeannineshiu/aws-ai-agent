@@ -8,13 +8,19 @@
                 |    ^  |                               |
                 |    +--+ insufficient, rewrite query   |
     START --> supervisor                                |
-                |    +--+ failed or empty, repair       |
-                |    v  |                               |
-                +--> sql ----------------------------->-+
-                |
-                +--> synthesize --> critic --> remember --> END
-                         ^             |
-                         +-------------+ not grounded, redraft
+      |         |    +--+ failed or empty, repair       |
+      |         |    v  |                               |
+      |         +--> sql ----------------------------->-+
+      |         |
+      |         +--> synthesize --> critic --> remember --> END
+      |                  ^             |
+      |                  +-------------+ not grounded, redraft
+      |
+      +--> prefetch    retrieves for the question as typed, so the embedding
+                       round trip happens inside the planning call rather
+                       than after it. A dead end: it writes documents the rag
+                       node uses if and only if it was going to search for
+                       that same string anyway.
 
 Three loops, each with a ceiling, each built for a failure the evaluation
 harness produced:
@@ -43,6 +49,7 @@ from src.graph.nodes import (
     after_rag,
     after_sql,
     make_critic_node,
+    make_prefetch_node,
     make_rag_node,
     make_remember_node,
     make_sql_node,
@@ -69,6 +76,7 @@ def build_graph(supervisor, rag_pipeline, sql_pipeline, synthesizer,
     g = StateGraph(AgentState)
 
     g.add_node("supervisor", make_supervisor_node(supervisor, max_passes))
+    g.add_node("prefetch", make_prefetch_node(rag_pipeline))
     g.add_node("rag", make_rag_node(rag_pipeline, grader, max_rag_attempts))
     g.add_node("sql", make_sql_node(sql_pipeline, repairer, max_sql_attempts, confirm_sql))
     g.add_node("synthesize", make_synthesize_node(synthesizer))
@@ -76,6 +84,9 @@ def build_graph(supervisor, rag_pipeline, sql_pipeline, synthesizer,
     g.add_node("remember", make_remember_node())
 
     g.add_edge(START, "supervisor")
+    # Fanned out from START so it runs *during* the planning call, not after it.
+    # It has no outgoing edge: nothing waits on it and nothing follows it.
+    g.add_edge(START, "prefetch")
     # supervisor -> {rag, sql, synthesize} is declared by the Command return type
     g.add_conditional_edges("rag", after_rag, {"rag": "rag", "supervisor": "supervisor"})
     g.add_conditional_edges("sql", after_sql, {"sql": "sql", "supervisor": "supervisor"})
@@ -202,6 +213,7 @@ class GraphAgent:
             "sql_attempts": 0, "sql_error": None, "last_sql": None,
             "pending_sql": None, "confirm_reason": "", "sql_declined": False,
             "route": "", "answer": "", "citations": [], "data": None, "sql": None,
+            "prefetched": None, "prefetched_for": "",
         }
 
     @staticmethod

@@ -177,6 +177,17 @@ class FakeCritic:
         return Verdict(grounded=ok, unsupported="" if ok else "invented a number")
 
 
+def searched(rag, question):
+    """What the rag *node* searched for.
+
+    The first retrieval of every turn is the prefetch node's speculative one for
+    the question as typed. It is discarded whenever the node ends up searching
+    for something else, which is exactly what the tests below are about, so the
+    speculative call is asserted and then set aside rather than hidden.
+    """
+    assert rag.retrieve_calls[:1] == [question], rag.retrieve_calls
+    return rag.retrieve_calls[1:]
+
 def make_graph(agents, mode="parallel", refined="REFINED QUESTION",
                rag=None, sql=None, grader=None, repairer=None, critic=None,
                queries=None, **budgets):
@@ -320,9 +331,10 @@ def test_each_specialist_gets_its_own_half_of_the_question():
         ["sql", "rag"], mode="parallel",
         queries={"sql": "How many questions are tagged amazon-sagemaker?",
                  "rag": "How does training work in Amazon SageMaker?"})
-    v2.run("How many questions are tagged SageMaker, and how does training work in it?")
+    question = "How many questions are tagged SageMaker, and how does training work in it?"
+    v2.run(question)
     assert sql.generated == ["How many questions are tagged amazon-sagemaker?"]
-    assert rag.retrieve_calls == ["How does training work in Amazon SageMaker?"]
+    assert searched(rag, question) == ["How does training work in Amazon SageMaker?"]
 
 
 def test_a_plan_with_no_split_still_asks_the_whole_question():
@@ -353,9 +365,10 @@ def test_parallel_findings_are_merged_not_clobbered():
 def test_sequential_feeds_the_first_result_into_the_second_query():
     v2, _, rag, sql, _ = make_graph(["sql", "rag"], mode="sequential",
                                     refined="What does SageMaker do?")
-    v2.run("Which service has the most questions and what does it do?")
-    assert sql.generated == ["Which service has the most questions and what does it do?"]
-    assert rag.retrieve_calls == ["What does SageMaker do?"]
+    question = "Which service has the most questions and what does it do?"
+    v2.run(question)
+    assert sql.generated == [question]
+    assert searched(rag, question) == ["What does SageMaker do?"]
 
 
 def test_the_second_half_of_a_sequential_plan_is_what_gets_refined():
@@ -377,8 +390,9 @@ def test_a_failed_refinement_falls_back_to_the_half_not_the_whole():
         ["sql", "rag"], mode="sequential", refined="What is that project for?",
         queries={"sql": "Which repository has the most open issues?",
                  "rag": "What is that project for?"})
-    v2.run("Which repository has the most open issues, and what is that project for?")
-    assert rag.retrieve_calls == ["What is that project for?"]
+    question = "Which repository has the most open issues, and what is that project for?"
+    v2.run(question)
+    assert searched(rag, question) == ["What is that project for?"]
 
 
 def test_both_route_synthesizes_instead_of_concatenating():
@@ -585,7 +599,11 @@ def test_parallel_dispatch_really_runs_concurrently():
     t0 = time.perf_counter()
     v2.run("q")
     elapsed = time.perf_counter() - t0
-    assert elapsed < 0.85, f"specialists did not overlap: {elapsed:.2f}s"
+    # 0.5s of it is the prefetch node, which shares SlowRAG.retrieve and has
+    # nothing to overlap with here because FakeSupervisor.plan is instant. The
+    # specialists themselves are the remaining 0.5s if they overlap and 1.0s if
+    # they do not, so the threshold still separates the two.
+    assert elapsed < 1.35, f"specialists did not overlap: {elapsed:.2f}s"
 
 
 def test_sequential_dispatch_does_not_overlap():
@@ -1213,3 +1231,91 @@ def test_a_resumed_turn_still_knows_which_tokens_are_the_answer():
 
     draft, restarts, _ = typed_out(agent.stream_answer(resume=True, thread_id="t1"))
     assert (draft, restarts) == ("one merged answer", 1), (draft, restarts)
+
+
+# ── speculative retrieval ─────────────────────────────────────────────────────
+#
+# The `prefetch` node searches for the question as typed while the supervisor is
+# still planning, so the embedding round trip happens inside the planning call
+# rather than after it. It is only ever allowed to save time: the rag node uses
+# what it found when, and only when, it was going to search for that same string.
+
+class StampingRAG(FakeRAG):
+    """Documents that name the query that fetched them, so a test can tell a
+    reused prefetch from a fresh search."""
+
+    def retrieve(self, query):
+        self.retrieve_calls.append(query)
+        return [FakeDoc(f"chunk for {query!r}")]
+
+
+def test_the_prefetch_is_fanned_out_from_the_start():
+    g = build_graph(*[object()] * 4).get_graph()
+    edges = {(e.source, e.target) for e in g.edges}
+    assert ("__start__", "prefetch") in edges, "it must run beside the supervisor"
+    # Nothing waits on it and nothing follows it. An edge into a specialist
+    # would put the search back on the critical path it was moved off.
+    assert {t for src, t in edges if src == "prefetch"} == {"__end__"}
+
+
+def test_a_search_the_supervisor_did_not_change_is_not_run_twice():
+    rag = StampingRAG()
+    v2, *_ = make_graph(["rag"], rag=rag)
+    state = v2.run_state("What is Amazon Bedrock?")
+    assert rag.retrieve_calls == ["What is Amazon Bedrock?"]
+    assert state["findings"][0]["retrieved_texts"] == [
+        "chunk for 'What is Amazon Bedrock?'"]
+
+
+def test_a_rewritten_question_answers_from_its_own_search():
+    """The prefetch searched for the words the user typed. A follow-up resolved
+    against the conversation is about something else, and answering it from the
+    speculative documents would answer a question nobody asked."""
+    rag = StampingRAG()
+    v2 = GraphAgent(FakeSupervisor(["rag"], standalone="How much does Bedrock cost?"),
+                    rag, FakeSQL(), FakeSynthesizer(), loops=False)
+    state = v2.run_state("How much does it cost?")
+    assert rag.retrieve_calls == ["How much does it cost?",        # speculative
+                                  "How much does Bedrock cost?"]   # what was asked
+    assert state["findings"][0]["retrieved_texts"] == [
+        "chunk for 'How much does Bedrock cost?'"]
+
+
+def test_a_prefetch_that_fails_leaves_the_turn_alone():
+    """It is an optimisation, so its failure mode has to be the behaviour it
+    replaced rather than a failed turn."""
+    class BrokenPrefetch(StampingRAG):
+        def retrieve(self, query):
+            if not self.retrieve_calls:
+                self.retrieve_calls.append(query)
+                raise RuntimeError("the vector store is down")
+            return super().retrieve(query)
+
+    rag = BrokenPrefetch()
+    v2, *_ = make_graph(["rag"], rag=rag)
+    assert v2.run("q")["answer"] == "RAG ANSWER"
+    assert rag.retrieve_calls == ["q", "q"], "the node did not search for itself"
+
+
+def test_the_prefetch_runs_while_the_supervisor_plans():
+    """The claim the node exists to make: a turn pays max(plan, search), not
+    plan + search."""
+    import time
+
+    class SlowPlan(FakeSupervisor):
+        def plan(self, question, history=None):
+            time.sleep(0.5)
+            return super().plan(question, history)
+
+    class SlowRAG(StampingRAG):
+        def retrieve(self, query):
+            time.sleep(0.5)
+            return super().retrieve(query)
+
+    rag = SlowRAG()
+    v2 = GraphAgent(SlowPlan(["rag"]), rag, FakeSQL(), FakeSynthesizer(), loops=False)
+    t0 = time.perf_counter()
+    v2.run("q")
+    elapsed = time.perf_counter() - t0
+    assert rag.retrieve_calls == ["q"], "the prefetch was not reused"
+    assert elapsed < 0.8, f"the search waited for the plan: {elapsed:.2f}s"

@@ -76,6 +76,10 @@ class AgentState(TypedDict, total=False):
     awaiting: list[str]      # specialists dispatched and not yet reported
     passes: int              # dispatch budget guard — a supervisor loop needs a ceiling
 
+    # speculative retrieval — filled by `prefetch`, used only on an exact match
+    prefetched: Any          # documents for the question as typed, or None
+    prefetched_for: str      # the query they were fetched for, so a rewrite discards them
+
     # corrective retrieval loop
     rag_attempts: int
     rag_query: str | None    # rewritten search query; None means "not retrying"
