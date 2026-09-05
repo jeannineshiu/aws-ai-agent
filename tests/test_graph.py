@@ -12,16 +12,20 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import itertools
+
 import pytest
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 
 from src.agent.agent import AWSAgent
 from src.graph.builder import GraphAgent, build_graph
 from src.graph.critic import Verdict
 from src.graph.grader import Grade
-from src.graph.narrate import describe
+from src.graph.narrate import carries_the_answer, describe, expects_a_merge
 from src.graph.supervisor import ContextualPlan, Plan, Supervisor, Task
 from src.router.router import RouteType
 from src.sql.validate import Review
+from src.tags import ANSWER
 
 
 # ── fakes ─────────────────────────────────────────────────────────────────────
@@ -1062,3 +1066,150 @@ def test_the_gate_is_off_by_default():
     query it could not classify."""
     agent, *_ = make_graph(["sql"])
     assert agent.confirm_sql is False
+
+
+# ── typing the answer out ─────────────────────────────────────────────────────
+#
+# The other fakes return their answers as plain strings, so no token ever
+# reaches the stream — which is the whole of what is under test here. These
+# write theirs with a model, tagged the way the real pipelines tag theirs, so
+# the wiring from `config={"tags": [ANSWER]}` through LangGraph's message
+# stream to the filter in `stream_answer` is exercised end to end.
+
+def _speaking(text):
+    return GenericFakeChatModel(messages=itertools.cycle([text]))
+
+
+class SpeakingRAG(FakeRAG):
+    def __init__(self, text="documentation prose"):
+        super().__init__()
+        self.llm = _speaking(text)
+
+    def generate(self, question, docs):
+        answer = self.llm.invoke(question, config={"tags": [ANSWER]}).content
+        return {**super().generate(question, docs), "answer": answer}
+
+
+class SpeakingSQL(FakeSQL):
+    def __init__(self, text="data prose", outcomes=None):
+        super().__init__(outcomes)
+        self.llm = _speaking(text)
+
+    def explain_results(self, question, df):
+        return self.llm.invoke(question, config={"tags": [ANSWER]}).content
+
+
+class SpeakingSynthesizer(FakeSynthesizer):
+    def __init__(self, merged="one merged answer", redraft="the redraft"):
+        super().__init__()
+        self.merger, self.reviser = _speaking(merged), _speaking(redraft)
+
+    def merge(self, question, rag, sql):
+        super().merge(question, rag, sql)
+        return self.merger.invoke(question, config={"tags": [ANSWER]}).content
+
+    def revise(self, question, answer, contexts, critique):
+        super().revise(question, answer, contexts, critique)
+        return self.reviser.invoke(question, config={"tags": [ANSWER]}).content
+
+
+def speaking_graph(agents, mode="parallel", **kw):
+    sup = FakeSupervisor(agents, mode)
+    rag, sql, syn = SpeakingRAG(), SpeakingSQL(), SpeakingSynthesizer()
+    agent = GraphAgent(sup, rag, sql, syn, loops=False, **kw)
+    return agent, syn
+
+
+def typed_out(events):
+    """What the app would have on screen when the turn ends: the answer as it
+    was typed, how many times it started over, and in how many pieces."""
+    draft, restarts, pieces = "", 0, 0
+    for kind, payload in events:
+        if kind == "restart":
+            draft, restarts = "", restarts + 1
+        elif kind == "token":
+            draft += payload
+            pieces += 1
+    return draft, restarts, pieces
+
+
+def test_which_dispatches_end_in_a_merge():
+    assert expects_a_merge({"awaiting": ["rag"], "plan": []}) is False
+    assert expects_a_merge({"awaiting": ["rag", "sql"], "plan": []}) is True
+    # A sequential plan dispatches its two one at a time, so counting only the
+    # ones being awaited would read the first half of one as a lone specialist.
+    assert expects_a_merge({"awaiting": ["sql"], "plan": ["rag"]}) is True
+    # Not dispatches: a parked wake-up, and the hand-off to synthesis.
+    assert expects_a_merge(None) is None
+    assert expects_a_merge({"passes": 3, "awaiting": []}) is None
+
+
+def test_only_prose_is_typed_out():
+    """Planning the dispatch and writing the SQL are model calls too, and a
+    caller that typed out every token would show a JSON plan in the answer."""
+    assert carries_the_answer("supervisor", (), False) is False
+    assert carries_the_answer("sql", None, False) is False
+    assert carries_the_answer("sql", (ANSWER,), False) is True
+    assert carries_the_answer("synthesize", (ANSWER,), True) is True
+
+
+def test_a_lone_specialist_writes_the_answer_the_user_reads():
+    """rag-only and sql-only pass the specialist's prose through synthesis
+    untouched, so the specialist's own tokens are the answer."""
+    for agents, expected in [(["rag"], "documentation prose"),
+                             (["sql"], "data prose")]:
+        agent, _ = speaking_graph(agents)
+        draft, restarts, pieces = typed_out(agent.stream_answer("q"))
+        assert draft == expected, (agents, draft)
+        assert (restarts, pieces > 1) == (1, True), (agents, restarts, pieces)
+
+
+def test_the_answer_arrives_before_the_turn_is_over():
+    """The point of the exercise. Before this the answer was one string handed
+    over after the last node, and the wait for it was most of the turn."""
+    agent, _ = speaking_graph(["rag"])
+    events = [(kind, payload[0] if kind == "node" else None)
+              for kind, payload in agent.stream_answer("q")]
+    first_token = next(i for i, (kind, _) in enumerate(events) if kind == "token")
+    last_node = max(i for i, (kind, _) in enumerate(events) if kind == "node")
+    assert first_token < last_node, events
+
+
+def test_the_specialists_are_not_typed_out_when_a_merge_will_follow():
+    """Both specialists write prose and both calls are tagged, but the user
+    reads neither - the merge rewrites them into one answer, and typing all
+    three would show two paragraphs that are then replaced."""
+    for mode in ("parallel", "sequential"):
+        agent, syn = speaking_graph(["rag", "sql"], mode=mode)
+        draft, restarts, _ = typed_out(agent.stream_answer("q"))
+        assert (draft, restarts) == ("one merged answer", 1), (mode, draft, restarts)
+        assert syn.merge_calls
+
+
+def test_a_redraft_replaces_the_answer_rather_than_extending_it():
+    """The critic sends a rejected draft back. What follows is a second answer
+    to the same question, and appending it would splice the two together."""
+    agent, syn = speaking_graph(["rag"], critic=FakeCritic([False]))
+    draft, restarts, _ = typed_out(agent.stream_answer("q"))
+    assert (draft, restarts) == ("the redraft", 2), (draft, restarts)
+    assert syn.revise_calls
+
+
+def test_a_resumed_turn_still_knows_which_tokens_are_the_answer():
+    """The dispatch that would have told it happened on the previous stream.
+    Without the checkpointer to read it back from, a resumed two-specialist
+    turn would type out the specialist prose the merge is about to replace."""
+    sup = FakeSupervisor(["sql", "rag"], mode="sequential")
+    sql = ReviewingSQL(("confirm",))
+    sql.llm = _speaking("data prose")
+    sql.explain_results = lambda q, df: sql.llm.invoke(
+        q, config={"tags": [ANSWER]}).content
+    syn = SpeakingSynthesizer()
+    agent = GraphAgent(sup, SpeakingRAG(), sql, syn, loops=False, confirm_sql=True)
+
+    for _ in agent.stream_turn("q", thread_id="t1"):
+        pass
+    assert agent.pending_confirmation("t1")
+
+    draft, restarts, _ = typed_out(agent.stream_answer(resume=True, thread_id="t1"))
+    assert (draft, restarts) == ("one merged answer", 1), (draft, restarts)

@@ -6,6 +6,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
 from dotenv import load_dotenv
 
+from src.tags import ANSWER
+
 load_dotenv()
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -70,7 +72,8 @@ class RAGPipeline:
             context=context,
             question=query,
         )
-        response = self.llm.invoke(prompt)
+        # Tagged because this is the call whose tokens are the answer; see src/tags.py.
+        response = self.llm.invoke(prompt, config={"tags": [ANSWER]})
 
         # Build citations list
         citations = [

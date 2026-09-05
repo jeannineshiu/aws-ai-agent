@@ -186,7 +186,9 @@ aws-ai-agent/
 │   │   ├── repair.py         #   rewrites a failed query from the failure and real values
 │   │   ├── grader.py         #   retrieval relevance check + query rewrite
 │   │   ├── critic.py         #   groundedness gate before the answer ships
-│   │   └── narrate.py        #   one streamed node update -> one line for the UI
+│   │   └── narrate.py        #   one node update -> one line for the UI, and which
+│   │                         #   tokens are the answer rather than working notes
+│   ├── tags.py               # marks the one model call per turn that writes prose
 │   ├── rag/pipeline.py       # retrieve + generate
 │   ├── sql/pipeline.py       # text-to-SQL + execute + explain
 │   ├── sql/validate.py       # allow / confirm / reject for generated SQL

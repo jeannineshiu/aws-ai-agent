@@ -34,6 +34,7 @@ which is the only channel a checkpointer is meant to carry across turns - see
 """
 from langgraph.graph import END, START, StateGraph
 
+from src.graph.narrate import carries_the_answer, expects_a_merge
 from src.graph.nodes import (
     MAX_PASSES,
     MAX_RAG_ATTEMPTS,
@@ -210,6 +211,68 @@ class GraphAgent:
                 **(config or {}).get("configurable", {}), "thread_id": thread_id}}
         return config or {}
 
+    def stream_answer(self, question: str | None = None, *, resume=None,
+                      config: dict | None = None, thread_id: str | None = None):
+        """Yield the turn as it happens, as `(kind, payload)`:
+
+            ("node",    (node, update))  a node finished
+            ("token",   text)            another piece of the answer was written
+            ("restart", None)            discard the answer so far and start over
+
+        Node events alone are what `stream_turn` exposes and what the app used
+        to render: a list of steps, and then the whole answer at once when the
+        last call returned. But the answer is written a token at a time and the
+        wait for it is most of the turn - measured on a documentation question,
+        the first token arrives in 0.71s against 1.30s for the finished answer -
+        so the tokens are on this stream too.
+
+        `restart` is not a failure. The critic sends a rejected answer back to
+        be redrafted, and the redraft is a second, different answer to the same
+        question; a caller appending both would splice them together.
+
+        Pass `resume=` instead of a question to continue a turn that stopped at
+        the confirmation gate.
+        """
+        if resume is None:
+            graph_input = self._turn_input(question)
+            # Not known until the supervisor dispatches. None rather than False,
+            # so the first dispatch is distinguishable from a later wake-up.
+            merge_expected = None
+        else:
+            from langgraph.types import Command
+            graph_input = Command(resume=resume)
+            # The dispatch that would have told us happened on the previous
+            # stream. The checkpointer still holds it, which is the only reason
+            # a resumed turn can tell its own tokens apart at all.
+            merge_expected = (expects_a_merge(self.state_of(thread_id))
+                              if thread_id else None)
+
+        generation = None
+        for mode, chunk in self.graph.stream(graph_input,
+                                             self._config(config, thread_id),
+                                             stream_mode=["updates", "messages"]):
+            if mode == "updates":
+                for node, update in chunk.items():
+                    if merge_expected is None and node == "supervisor":
+                        merge_expected = expects_a_merge(update)
+                    yield "node", (node, update)
+                continue
+
+            message, meta = chunk
+            if not carries_the_answer(meta.get("langgraph_node"), meta.get("tags"),
+                                      bool(merge_expected)):
+                continue
+
+            # Two tagged calls from one node in one turn are two answers, not
+            # one long one: `synthesize` merges, and then redrafts if the critic
+            # pushed back. The step number is what separates them.
+            here = (meta.get("langgraph_node"), meta.get("langgraph_step"))
+            if here != generation:
+                generation = here
+                yield "restart", None
+            if message.content:
+                yield "token", message.content
+
     def stream_turn(self, question: str, config: dict | None = None,
                     thread_id: str | None = None):
         """Yield `(node, update)` as each node finishes.
@@ -219,11 +282,10 @@ class GraphAgent:
         wants to say what the agent is doing while it does it iterates this
         instead.
         """
-        for chunk in self.graph.stream(self._turn_input(question),
-                                       self._config(config, thread_id),
-                                       stream_mode="updates"):
-            for node, update in chunk.items():
-                yield node, update
+        for kind, payload in self.stream_answer(question, config=config,
+                                                thread_id=thread_id):
+            if kind == "node":
+                yield payload
 
     def resume_turn(self, decision, config: dict | None = None,
                     thread_id: str | None = None):
@@ -232,13 +294,10 @@ class GraphAgent:
         `decision` is what `interrupt()` returns inside the node - truthy to run
         the query it parked, falsy to answer without it.
         """
-        from langgraph.types import Command
-
-        for chunk in self.graph.stream(Command(resume=decision),
-                                       self._config(config, thread_id),
-                                       stream_mode="updates"):
-            for node, update in chunk.items():
-                yield node, update
+        for kind, payload in self.stream_answer(resume=decision, config=config,
+                                                thread_id=thread_id):
+            if kind == "node":
+                yield payload
 
     def run_traced(self, question: str, config: dict | None = None,
                    thread_id: str | None = None) -> dict:

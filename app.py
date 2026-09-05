@@ -158,7 +158,8 @@ with tab_chat:
             decision = st.session_state.pop("resume_with")
             steps.append("Ran the held query" if decision
                          else "Skipped the held query")
-            events = agent.resume_turn(decision, thread_id=st.session_state.thread_id)
+            events = agent.stream_answer(resume=decision,
+                                         thread_id=st.session_state.thread_id)
         else:
             question, steps = st.session_state.pop("pending_question"), []
             with st.chat_message("user"):
@@ -167,6 +168,7 @@ with tab_chat:
             events = None
 
         with st.chat_message("assistant"):
+            status = None
             try:
                 if IS_GRAPH:
                     thread_id = st.session_state.thread_id
@@ -175,35 +177,59 @@ with tab_chat:
                         # decisions - who was dispatched, what was retried, what
                         # was sent back to be redrafted - are all over before the
                         # answer exists, and a spinner shows none of them.
-                        events = agent.stream_turn(question, thread_id=thread_id)
+                        events = agent.stream_answer(question, thread_id=thread_id)
 
-                    with st.status("Working…", expanded=True) as status:
-                        for line in steps:
-                            st.markdown(f"- {line}")
-                        for node, update in events:
-                            line = describe(node, update, question)
-                            if line:
+                    # Held by name rather than entered with `with`, because the
+                    # answer placeholder has to be created after it to render
+                    # below it, and then written to from inside the same loop.
+                    # The answer starts arriving while the steps are still coming.
+                    status = st.status("Working…", expanded=True)
+                    for line in steps:
+                        status.markdown(f"- {line}")
+                    route_box, answer_box = st.empty(), st.empty()
+
+                    draft = ""
+                    for kind, payload in events:
+                        if kind == "node":
+                            node, update = payload
+                            if line := describe(node, update, question):
                                 steps.append(line)
-                                st.markdown(f"- {line}")
+                                status.markdown(f"- {line}")
+                        elif kind == "restart":
+                            # The critic rejected the draft. What follows is a
+                            # different answer to the same question, not more of
+                            # this one.
+                            draft = ""
+                        else:
+                            draft += payload
+                            answer_box.markdown(draft)
 
-                        held = agent.pending_confirmation(thread_id)
-                        if held:
-                            status.update(label="Waiting for you",
-                                          state="complete", expanded=False)
-                            st.session_state.awaiting_sql = {
-                                "question": question, "payload": held, "steps": steps}
-                            st.rerun()
-
-                        status.update(label=f"Answered in {len(steps)} steps",
+                    held = agent.pending_confirmation(thread_id)
+                    if held:
+                        status.update(label="Waiting for you",
                                       state="complete", expanded=False)
+                        st.session_state.awaiting_sql = {
+                            "question": question, "payload": held, "steps": steps}
+                        st.rerun()
+
+                    status.update(label=f"Answered in {len(steps)} steps",
+                                  state="complete", expanded=False)
 
                     # The turn was streamed for the display above; the answer
                     # itself comes from the checkpointer, already assembled.
+                    # It is not always the string that was typed out: synthesis
+                    # strips citations that point at nothing, and that happens
+                    # after the last token. Rewriting the placeholder below is
+                    # what applies it.
                     result = project(question, agent.state_of(thread_id))
                 else:
                     with st.spinner("Thinking..."):
                         result = agent.run(question)
+                    route_box, answer_box = st.empty(), st.empty()
             except Exception as e:
+                if status is not None:
+                    # Nothing closes the box on the way out of a plain `try`.
+                    status.update(label="Failed", state="error", expanded=False)
                 st.error(f"Error: {e}")
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -214,8 +240,8 @@ with tab_chat:
 
             route_colors = {"rag": "🟢", "sql": "🔵", "both": "🟣"}
             route_emoji = route_colors.get(result["route"], "⚪")
-            st.caption(f"{route_emoji} Route: `{result['route'].upper()}`")
-            st.markdown(result["answer"])
+            route_box.caption(f"{route_emoji} Route: `{result['route'].upper()}`")
+            answer_box.markdown(result["answer"])
 
             if result.get("data") is not None and not result["data"].empty:
                 st.dataframe(result["data"], width="stretch")
