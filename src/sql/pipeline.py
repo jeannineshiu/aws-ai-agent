@@ -1,6 +1,7 @@
 # src/sql/pipeline.py
 import os
 import sqlite3
+from pathlib import Path
 import pandas as pd
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -75,10 +76,39 @@ Highlight the most important insight from the data.
 """)
 
 
+# Everything a read needs: the statement, its columns, its functions, and
+# `WITH RECURSIVE`. Anything else is refused before the statement runs.
+_READ_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ,
+                 sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
+
+
+def _read_only(action, *_):
+    return sqlite3.SQLITE_OK if action in _READ_ACTIONS else sqlite3.SQLITE_DENY
+
+
+def connect_read_only(path: str) -> sqlite3.Connection:
+    """Open the database so that SQLite itself refuses every write.
+
+    `review()` decides what may run, but it reads text, and a query a human
+    approved from `confirm` reaches `execute_sql` with only that human behind
+    it. So the engine gets the last word, in two layers.
+
+    `mode=ro` makes the file read-only, and a missing file an error rather than
+    a new, empty database. It does not reach past the file: on a `mode=ro`
+    connection `ATTACH 'x.db'` still creates x.db and can write to it, and
+    `CREATE TEMP TABLE` still works. The authorizer closes that, by allowing
+    only what a read is made of.
+    """
+    conn = sqlite3.connect(f"{Path(path).as_uri()}?mode=ro", uri=True,
+                           check_same_thread=False)
+    conn.set_authorizer(_read_only)
+    return conn
+
+
 class SQLPipeline:
     def __init__(self):
         self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=60)
-        self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        self.conn = connect_read_only(DB_PATH)
 
     def generate_sql(self, question: str) -> str:
         """Generate SQL from natural language question."""

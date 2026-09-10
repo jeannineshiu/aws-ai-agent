@@ -2,6 +2,8 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import sqlite3
+
 import pandas as pd
 import pytest
 
@@ -9,7 +11,7 @@ from src.sql.validate import review
 from unittest.mock import MagicMock
 from langchain_core.documents import Document
 
-from src.sql.pipeline import SQLPipeline
+from src.sql.pipeline import SQLPipeline, connect_read_only
 from src.rag.pipeline import RAGPipeline
 from src.router.router import QueryRouter, RouteType
 
@@ -48,6 +50,64 @@ def test_validate_sql_created_at_is_not_create():
 def test_validate_sql_rejects_non_select():
     ok, msg = make_sql_pipeline().validate_sql("EXEC xp_cmdshell('ls')")
     assert ok is False
+
+
+# ── the connection: read-only at the engine, not just in review() ─────────────
+
+@pytest.fixture
+def db_file(tmp_path):
+    path = tmp_path / "issues.db"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE issues (id INTEGER PRIMARY KEY, title TEXT)")
+    conn.execute("INSERT INTO issues (title) VALUES ('endpoint times out')")
+    conn.commit()
+    conn.close()
+    return path
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT title FROM issues",
+    "SELECT COUNT(*) AS n FROM issues WHERE title LIKE '%endpoint%'",
+    "SELECT DISTINCT title FROM issues WHERE title IS NOT NULL AND title != '' LIMIT 6",
+    "WITH t AS (SELECT title FROM issues) SELECT upper(title) FROM t",
+    "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 3) SELECT i FROM n",
+])
+def test_read_only_connection_still_reads(db_file, sql):
+    p = make_sql_pipeline()
+    p.conn = connect_read_only(str(db_file))
+    assert not p.execute_sql(sql).empty
+
+
+@pytest.mark.parametrize("sql", [
+    "INSERT INTO issues (title) VALUES ('x')",
+    "UPDATE issues SET title = 'x'",
+    "DELETE FROM issues",
+    "DROP TABLE issues",
+    "CREATE TABLE t (x)",
+    "CREATE TEMP TABLE t (x)",
+    "PRAGMA table_info(issues)",
+])
+def test_a_write_past_review_is_refused_by_sqlite(db_file, sql):
+    """Straight to the connection, as a query approved from `confirm` would go."""
+    p = make_sql_pipeline()
+    p.conn = connect_read_only(str(db_file))
+    with pytest.raises(Exception, match="not authorized"):
+        p.execute_sql(sql)
+    assert sqlite3.connect(db_file).execute("SELECT COUNT(*) FROM issues").fetchone() == (1,)
+
+
+def test_attach_cannot_create_a_file(db_file, tmp_path):
+    """`mode=ro` alone lets this through: it covers the file, not the connection."""
+    conn = connect_read_only(str(db_file))
+    with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+        conn.execute(f"ATTACH DATABASE '{tmp_path / 'new.db'}' AS other")
+    assert not (tmp_path / "new.db").exists()
+
+
+def test_a_missing_database_is_an_error_not_an_empty_file(tmp_path):
+    with pytest.raises(sqlite3.OperationalError):
+        connect_read_only(str(tmp_path / "missing.db"))
+    assert not (tmp_path / "missing.db").exists()
 
 
 # ── SQLPipeline.explain_results: body truncation ─────────────────────────────
