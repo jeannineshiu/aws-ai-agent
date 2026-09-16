@@ -171,6 +171,20 @@ def test_format_context_multiple_docs_separated():
     assert "doc two" in context
 
 
+def test_two_chunks_of_one_page_are_one_citation():
+    p = make_rag_pipeline()
+    p.llm = MagicMock()
+    p.llm.invoke.return_value = MagicMock(content="answer")
+    docs = [
+        Document(page_content="chunk 0", metadata={"title": "Overview", "service": "Bedrock", "source": "u1"}),
+        Document(page_content="chunk 1", metadata={"title": "Models", "service": "Bedrock", "source": "u2"}),
+        Document(page_content="chunk 2", metadata={"title": "Overview", "service": "Bedrock", "source": "u1"}),
+    ]
+    out = p.generate("q", docs)
+    assert [c["url"] for c in out["citations"]] == ["u1", "u2"]
+    assert len(out["retrieved_texts"]) == 3, "evaluation still sees every chunk"
+
+
 # ── QueryRouter fallback ──────────────────────────────────────────────────────
 
 def make_router():

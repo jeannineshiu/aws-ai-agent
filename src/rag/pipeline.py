@@ -75,15 +75,21 @@ class RAGPipeline:
         # Tagged because this is the call whose tokens are the answer; see src/tags.py.
         response = self.llm.invoke(prompt, config={"tags": [ANSWER]})
 
-        # Build citations list
-        citations = [
-            {
+        # One citation per page, not per chunk: a page is split into several
+        # chunks, and two of them retrieved together would list the page twice.
+        # retrieved_texts below stays per chunk — evaluation scores the chunks.
+        citations = []
+        seen = set()
+        for doc in docs:
+            url = doc.metadata.get("source", "")
+            if url in seen:
+                continue
+            seen.add(url)
+            citations.append({
                 "title": doc.metadata.get("title", ""),
                 "service": doc.metadata.get("service", ""),
-                "url": doc.metadata.get("source", ""),
-            }
-            for doc in docs
-        ]
+                "url": url,
+            })
 
         return {
             "query": query,
