@@ -234,6 +234,9 @@ question.
 - A clause asking what something is, does or is for belongs to rag however
   completely the rewrite names its subject. Resolving a reference into concrete
   names does not move that clause into the database.
+- A clause asking for the most common, most frequent or most reported things is
+  a ranking, and belongs to sql however it is worded - "what are the most common
+  issues" is a question about counts, not about documentation.
 
 Examples, given "What is Amazon Bedrock?" earlier in the conversation:
 
@@ -255,6 +258,13 @@ Examples, given "What is Amazon Bedrock?" earlier in the conversation:
     Bedrock handle long documents?", mode "parallel"
       sql: "How many questions are tagged amazon-bedrock?"
       rag: "How does Amazon Bedrock handle long documents?"
+
+  "What are the most common SageMaker issues, and how does training work?"
+    standalone unchanged - a new subject, so nothing is resolved and nothing is
+    added. Two parts, mode "parallel": the most common issues are a ranking, and
+    how training works is documentation.
+      sql: "What are the most commonly reported Amazon SageMaker issues?"
+      rag: "How does training work in Amazon SageMaker?"
 """)
 
 REFINE_PROMPT = ChatPromptTemplate.from_template("""
