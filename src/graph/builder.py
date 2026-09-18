@@ -60,7 +60,8 @@ from src.graph.state import AgentState
 
 
 def build_graph(supervisor, rag_pipeline, sql_pipeline, synthesizer,
-                grader=None, repairer=None, critic=None, checkpointer=None,
+                grader=None, repairer=None, critic=None, detector=None,
+                checkpointer=None,
                 max_passes: int = MAX_PASSES,
                 max_rag_attempts: int = MAX_RAG_ATTEMPTS,
                 max_sql_attempts: int = MAX_SQL_ATTEMPTS,
@@ -71,7 +72,9 @@ def build_graph(supervisor, rag_pipeline, sql_pipeline, synthesizer,
     Everything is a parameter so tests can pass fakes and exercise dispatch,
     fan-out, the loops and synthesis without any API calls. Passing None for
     grader, repairer or critic disables that loop, which is how the Phase 1
-    behaviour stays reachable for comparison.
+    behaviour stays reachable for comparison. `detector` is not a loop - it
+    adds one call before the merge on a `both` route and nothing branches on
+    it - so None simply means the merge is not told where the two disagree.
     """
     g = StateGraph(AgentState)
 
@@ -79,7 +82,7 @@ def build_graph(supervisor, rag_pipeline, sql_pipeline, synthesizer,
     g.add_node("prefetch", make_prefetch_node(rag_pipeline))
     g.add_node("rag", make_rag_node(rag_pipeline, grader, max_rag_attempts))
     g.add_node("sql", make_sql_node(sql_pipeline, repairer, max_sql_attempts, confirm_sql))
-    g.add_node("synthesize", make_synthesize_node(synthesizer))
+    g.add_node("synthesize", make_synthesize_node(synthesizer, detector))
     g.add_node("critic", make_critic_node(critic, max_revisions))
     g.add_node("remember", make_remember_node())
 
@@ -136,7 +139,7 @@ class GraphAgent:
     # questions that must not see each other.
     def __init__(self, supervisor=None, rag_pipeline=None, sql_pipeline=None,
                  synthesizer=None, grader=None, repairer=None, critic=None,
-                 checkpointer=None, loops="repair", memory=False,
+                 detector=None, checkpointer=None, loops="repair", memory=False,
                  confirm_sql=False, **budgets):
         # Imported lazily so tests can build a graph from fakes without touching
         # Chroma, SQLite or the OpenAI client.
@@ -154,8 +157,16 @@ class GraphAgent:
             print("Agent ready.")
 
         if loops:
+            from src.graph.reconcile import ConflictDetector
             from src.graph.repair import SQLRepairer
             repairer = repairer or SQLRepairer()
+            # On by default, unlike the grader and the critic, and on different
+            # grounds: those two re-judge work that was already done well most
+            # of the time, and the measurement says so. This one covers a
+            # failure the merge cannot detect and the user cannot see - and it
+            # bills nothing on the two single-specialist routes, which are most
+            # of the traffic.
+            detector = detector or ConflictDetector()
 
             if loops == "all":
                 from src.graph.critic import Critic
@@ -183,7 +194,7 @@ class GraphAgent:
         self.confirm_sql = confirm_sql
 
         self.graph = build_graph(supervisor, rag_pipeline, sql_pipeline, synthesizer,
-                                 grader, repairer, critic, checkpointer,
+                                 grader, repairer, critic, detector, checkpointer,
                                  confirm_sql=confirm_sql, **budgets)
 
     # ── one turn ──────────────────────────────────────────────────────────────
@@ -213,6 +224,7 @@ class GraphAgent:
             "sql_attempts": 0, "sql_error": None, "last_sql": None,
             "pending_sql": None, "confirm_reason": "", "sql_declined": False,
             "route": "", "answer": "", "citations": [], "data": None, "sql": None,
+            "conflicts": None,
             "prefetched": None, "prefetched_for": "",
         }
 
@@ -385,4 +397,8 @@ def project(question: str, final: dict) -> dict:
         "citations": final.get("citations", []),
         "data": final.get("data"),
         "sql": final.get("sql"),
+        # None when nothing was compared, [] when the two agreed. A caller that
+        # flattened these together would show "sources agree" on every
+        # documentation-only answer.
+        "conflicts": final.get("conflicts"),
     }

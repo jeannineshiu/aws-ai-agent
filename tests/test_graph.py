@@ -125,9 +125,11 @@ class FakeSQL:
 class FakeSynthesizer:
     def __init__(self):
         self.merge_calls, self.revise_calls = [], []
+        self.conflicts_seen = []
 
-    def merge(self, question, rag, sql):
+    def merge(self, question, rag, sql, conflicts=None):
         self.merge_calls.append((question, rag["answer"], sql["answer"]))
+        self.conflicts_seen.append(conflicts)
         return "MERGED ANSWER"
 
     def revise(self, question, answer, contexts, critique):
@@ -163,6 +165,19 @@ class FakeRepairer:
         return "SELECT 2 -- repaired"
 
 
+class FakeDetector:
+    """`found` is one list per detect() call; the last repeats."""
+
+    def __init__(self, found=([],)):
+        self.found = list(found)
+        self.calls = []
+
+    def detect(self, question, rag, sql):
+        i = min(len(self.calls), len(self.found) - 1)
+        self.calls.append((rag["answer"], sql["answer"]))
+        return list(self.found[i])
+
+
 class FakeCritic:
     """`verdicts` is one entry per check() call; the last repeats."""
 
@@ -190,12 +205,12 @@ def searched(rag, question):
 
 def make_graph(agents, mode="parallel", refined="REFINED QUESTION",
                rag=None, sql=None, grader=None, repairer=None, critic=None,
-               queries=None, **budgets):
+               detector=None, queries=None, **budgets):
     sup = FakeSupervisor(agents, mode, refined, queries=queries)
     rag = rag or FakeRAG()
     sql = sql or FakeSQL()
     syn = FakeSynthesizer()
-    agent = GraphAgent(sup, rag, sql, syn, grader, repairer, critic,
+    agent = GraphAgent(sup, rag, sql, syn, grader, repairer, critic, detector,
                        loops=False, **budgets)
     return agent, sup, rag, sql, syn
 
@@ -228,7 +243,17 @@ def test_single_route_still_matches_v1(route, agent):
     v1.router, v1.rag, v1.sql = FakeRouter(route), FakeRAG(), FakeSQL()
     v2, *_ = make_graph([agent])
     q = "What is Amazon Bedrock?"
-    assert v1.run(q) == v2.run(q)
+    one, two = v1.run(q), v2.run(q)
+
+    # Every key v1 returns, with the same value: the answer, the citations, the
+    # query and the rows are what the evaluation reads, and they must not move.
+    assert {k: two[k] for k in one} == one
+
+    # The graph's dict has since gained keys for work v1 never did. They are
+    # allowed here only while they stay at the value that means "this did not
+    # happen", which on a single-specialist route is the only honest one -
+    # nothing was compared, because there was nothing to compare against.
+    assert {k: v for k, v in two.items() if k not in one} == {"conflicts": None}
 
 
 def test_single_finding_is_not_sent_to_the_synthesizer():
@@ -258,7 +283,9 @@ class StubLLM:
     def with_structured_output(self, schema):
         return self
 
-    def invoke(self, messages):
+    # `config` is accepted because the synthesizer tags its call as the one
+    # whose tokens are the answer.
+    def invoke(self, messages, config=None):
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
@@ -579,6 +606,120 @@ def test_no_critic_means_no_check():
     assert syn.revise_calls == []
 
 
+# ── conflict detection ────────────────────────────────────────────────────────
+#
+# Not a loop: nothing branches on the result. It is one comparison the merge
+# cannot make about itself, because the merge is the thing being checked.
+
+DISAGREE = ["The documentation says the limit is 25; the data shows 40."]
+
+
+def test_conflicts_are_detected_and_handed_to_the_merge():
+    """The point of detecting before merging rather than after: the merge is
+    told which claims to reconcile instead of being asked to find them."""
+    detector = FakeDetector(found=(DISAGREE,))
+    v2, _, _, _, syn = make_graph(["rag", "sql"], detector=detector)
+    out = v2.run("q")
+    assert len(detector.calls) == 1
+    assert syn.conflicts_seen == [DISAGREE]
+    assert out["conflicts"] == DISAGREE
+
+
+def test_agreement_is_reported_as_checked_not_as_absent():
+    """`[]` and None are different facts — compared and compatible, versus never
+    compared — and the app draws a warning off the difference."""
+    v2, *_ = make_graph(["rag", "sql"], detector=FakeDetector(found=([],)))
+    assert v2.run("q")["conflicts"] == []
+    v2, *_ = make_graph(["rag", "sql"], detector=None)
+    assert v2.run("q")["conflicts"] is None
+
+
+@pytest.mark.parametrize("route", ["rag", "sql"])
+def test_one_specialist_cannot_conflict_with_itself(route):
+    """Only the `both` route can produce a disagreement, so it is the only route
+    that pays for the call."""
+    detector = FakeDetector(found=(DISAGREE,))
+    v2, *_ = make_graph([route], detector=detector)
+    out = v2.run("q")
+    assert detector.calls == []
+    assert out["conflicts"] is None
+
+
+def test_a_redraft_does_not_re_detect():
+    """Synthesis runs twice when the critic rejects the draft. The two findings
+    have not changed, so a second comparison buys a second call to be told the
+    same thing — or, the call being non-deterministic, something else."""
+    detector = FakeDetector(found=(DISAGREE, []))
+    v2, _, _, _, syn = make_graph(["rag", "sql"], detector=detector,
+                                  critic=FakeCritic(verdicts=(False, True)))
+    out = v2.run("q")
+    assert len(syn.revise_calls) == 1, "the critic should have pushed back"
+    assert len(detector.calls) == 1
+    assert out["conflicts"] == DISAGREE
+
+
+def test_a_conflict_is_narrated():
+    """A disagreement the user is not shown is a disagreement resolved by
+    whichever half the merge happened to keep."""
+    agent, *_ = make_graph(["rag", "sql"], detector=FakeDetector(found=(DISAGREE,)))
+    assert narrate(agent, "q")[-1] == f"The two sources disagree — {DISAGREE[0]}"
+
+
+def test_agreement_is_not_narrated():
+    """`[]` is the ordinary case on this route. A line for it on every merge
+    would teach the reader to skip the line that matters."""
+    agent, *_ = make_graph(["rag", "sql"], detector=FakeDetector(found=([],)))
+    assert narrate(agent, "q")[-1] == "Merged both answers"
+
+
+def test_detector_failure_reports_agreement():
+    """Fails open, on the critic's reasoning: a detector that cried conflict
+    whenever its own call failed would warn about answers nobody disputed."""
+    from src.graph.reconcile import ConflictDetector
+    det = ConflictDetector(llm=StubLLM(RuntimeError("no api key")))
+    assert det.detect("q", {"answer": "a"}, {"answer": "b"}) == []
+
+
+def test_detector_skips_a_finding_with_no_prose():
+    """A specialist that errored has nothing to contradict. Sending an empty
+    string to be compared invites the model to invent the difference."""
+    from src.graph.reconcile import ConflictDetector
+    det = ConflictDetector(llm=StubLLM(AssertionError("should not be called")))
+    assert det.detect("q", {"answer": ""}, {"answer": "b"}) == []
+    assert det.detect("q", {"answer": "a"}, {"answer": None}) == []
+
+
+def test_detector_drops_prose_that_means_nothing_was_found():
+    """Structured output does not stop a model from answering "none" in the
+    list it was asked to leave empty."""
+    from src.graph.reconcile import ConflictDetector, Reconciliation
+    det = ConflictDetector(llm=StubLLM(Reconciliation(
+        conflicts=["None", "  ", "The counts differ: 25 vs 40."])))
+    assert det.detect("q", {"answer": "a"}, {"answer": "b"}) == \
+        ["The counts differ: 25 vs 40."]
+
+
+def test_detector_is_shown_the_rows_behind_the_data_answer():
+    """The SQL prose summarises a DataFrame, and a summary can round or pick a
+    row. Where the disagreement is about a number, the rows settle it."""
+    import pandas as pd
+    from src.graph.reconcile import render_evidence
+    rendered = render_evidence({"data": pd.DataFrame({"n": [40]})})
+    assert "40" in rendered
+    assert render_evidence({"data": None}) == ""
+
+
+def test_conflicts_survive_a_failed_merge_call():
+    """The fallback concatenation is already asking the reader to reconcile two
+    answers. Dropping the reason they cannot be is the worst of both."""
+    from src.graph.synthesizer import Synthesizer
+    syn = Synthesizer(llm=StubLLM(RuntimeError("no api key")))
+    out = syn.merge("q", {"answer": "doc says 25"}, {"answer": "data says 40"},
+                    DISAGREE)
+    assert DISAGREE[0] in out
+    assert "**From documentation:**" in out
+
+
 # ── concurrency ───────────────────────────────────────────────────────────────
 
 def test_parallel_dispatch_really_runs_concurrently():
@@ -754,14 +895,35 @@ def test_default_configuration_is_repair_only():
     from unittest.mock import patch
     from src.graph.critic import Critic
     from src.graph.grader import RetrievalGrader
+    from src.graph.reconcile import ConflictDetector
     from src.graph.repair import SQLRepairer
 
     with patch.object(SQLRepairer, "__init__", return_value=None) as repairer, \
          patch.object(RetrievalGrader, "__init__", return_value=None) as grader, \
-         patch.object(Critic, "__init__", return_value=None) as critic:
+         patch.object(Critic, "__init__", return_value=None) as critic, \
+         patch.object(ConflictDetector, "__init__", return_value=None) as detector:
         GraphAgent(FakeSupervisor(["rag"]), FakeRAG(), FakeSQL(), FakeSynthesizer())
         assert repairer.called, "SQL repair should be on"
+        # The detector ships with it, on different grounds: the grader and the
+        # critic re-judge work the measurement says was already good, while
+        # this covers a failure the merge cannot see - and it bills nothing on
+        # the two single-specialist routes.
+        assert detector.called, "conflict detection should be on"
         assert not grader.called and not critic.called, "grader and critic should be off"
+
+
+def test_loops_false_is_the_phase_1_graph():
+    """`loops=False` is what the comparison runs against, so nothing added
+    later may quietly appear in it."""
+    from unittest.mock import patch
+    from src.graph.reconcile import ConflictDetector
+    from src.graph.repair import SQLRepairer
+
+    with patch.object(SQLRepairer, "__init__", return_value=None) as repairer, \
+         patch.object(ConflictDetector, "__init__", return_value=None) as detector:
+        GraphAgent(FakeSupervisor(["rag"]), FakeRAG(), FakeSQL(), FakeSynthesizer(),
+                   loops=False)
+        assert not repairer.called and not detector.called
 
 
 def test_loops_all_enables_every_loop():
@@ -1122,8 +1284,8 @@ class SpeakingSynthesizer(FakeSynthesizer):
         super().__init__()
         self.merger, self.reviser = _speaking(merged), _speaking(redraft)
 
-    def merge(self, question, rag, sql):
-        super().merge(question, rag, sql)
+    def merge(self, question, rag, sql, conflicts=None):
+        super().merge(question, rag, sql, conflicts)
         return self.merger.invoke(question, config={"tags": [ANSWER]}).content
 
     def revise(self, question, answer, contexts, critique):

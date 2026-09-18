@@ -183,6 +183,7 @@ aws-ai-agent/
 │   │   ├── nodes.py          #   supervisor / prefetch / rag / sql / synthesize / critic / remember
 │   │   ├── supervisor.py     #   who runs, in what relation, and what each is asked
 │   │   ├── synthesizer.py    #   cross-specialist merge, and the critic's redraft
+│   │   ├── reconcile.py      #   where the two specialists contradict each other
 │   │   ├── repair.py         #   rewrites a failed query from the failure and real values
 │   │   ├── grader.py         #   retrieval relevance check + query rewrite
 │   │   ├── critic.py         #   groundedness gate before the answer ships
@@ -398,6 +399,22 @@ That caching is what makes the thread id necessary. One cached agent means **one
 
 ---
 
+### 12. A conflict between the two specialists is detected, not left to the merge
+
+**Decision:** on a `both` route, one structured call compares the two findings for contradictions (`src/graph/reconcile.py`) *before* the merge, and the contradictions it returns are handed to the synthesis prompt and to the UI.
+
+The merge prompt already ends with "if the two specialists disagree, say so plainly". That is the same bargain as the citation placeholders in section 4 — a prompt asking the writer to notice something while it writes — and it fails the same way: sometimes. The failure it misses is the expensive one. Documentation says a service supports 25 of something and the query result says 40; the merge picks one, in one sentence, with a citation attached to whichever half it kept. Nothing in the output tells the reader the other half existed, and the citation makes the surviving figure look checked.
+
+Three properties follow from where it sits:
+
+- **Before the merge, not after.** The comparison's output is an input to the writing. The merge is told which claims to reconcile — "give both figures and say which source each came from, do not average them or pick a side" — instead of being asked to find them and then trusted to have looked.
+- **It is not the critic.** The critic asks whether a claim has *any* support in the sources. A claim supported by one specialist and denied by the other passes that check, because the support is real. Contradiction between two separately supported claims is a different question and needs its own call.
+- **`[]` and `None` are different answers.** `[]` means the two were compared and are compatible; `None` means nothing was compared, which is every single-specialist turn. The app draws a warning off that difference, so flattening them would put "sources agree" on every documentation-only answer.
+
+**What it costs.** One call, on the `both` route only — 10 of the 30 single-turn samples, so about +0.33 calls per query on that set and nothing at all on the other twenty. It fails open: a detector that reported a conflict whenever its own call errored would warn about answers nobody disputed, and a warning that fires on nothing is read as noise within a day. It is **on by default**, unlike the grader and the critic, and on different grounds — those two re-judge work the measurement says was already good, while this one covers a failure the merge cannot see and the reader cannot either. Its effect on the evaluation numbers is **not yet measured**. Ten `both` questions is enough to price the extra call but not to score the feature: the metric it would move is one the current harness does not have — whether a stated disagreement was real — and none of the ten is a question where the documentation and the database are known to contradict each other. Building that question set is the next thing this needs.
+
+---
+
 ## Evaluation
 
 The harness runs whichever implementation is asked for and scores what comes out of it. That is worth stating plainly: the earlier version called `RAGPipeline` and `SQLPipeline` directly, so routing, dispatch and every loop were invisible to it — the two-specialist route carried a correctness bug for the whole life of the project without a single number touching it.
@@ -515,7 +532,7 @@ The split is shown in the app too — *Splitting it — data: …; documentation
 
 ## Tests
 
-126 tests. All of them cover pure functions or fake collaborators, and none makes an API call:
+166 tests. All of them cover pure functions or fake collaborators, and none makes an API call:
 
 ```bash
 pytest tests -v
@@ -532,6 +549,7 @@ pytest tests -v
 | the split | Each specialist is asked its own half; a plan with no split, or with half of one, still asks the whole question; sequential refinement rewrites that specialist's half |
 | dispatch | Parallel fan-out really overlaps; a slow branch is not dropped when a fast one wakes the supervisor |
 | the loops | Each terminates on its own budget; repair fires on a COUNT of zero; the critic sees query results, not just documents |
+| conflict detection | Only the `both` route pays for the call; the contradictions reach the merge prompt; a redraft does not re-compare; a failed detector reports agreement rather than crying conflict; "compared and agreed" stays distinguishable from "never compared" |
 | multi-turn | `history` crosses a turn boundary and nothing else does; threads do not see each other; a query result survives the checkpointer |
 | narration | Every branch says what actually happened, and says nothing where nothing happened |
 | the gate | Nothing reaches the database before it is approved; resuming does not regenerate the query; a rejection is never put to a person |

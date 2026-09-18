@@ -70,7 +70,17 @@ def describe(node: str, update: dict | None, question: str = "") -> str | None:
         return "Queried GitHub issues and Stack Overflow"
 
     if node == "synthesize":
-        return "Merged both answers" if u.get("route") == "both" else "Composed the answer"
+        if u.get("route") != "both":
+            return "Composed the answer"
+        # A compared-and-agreed turn says nothing: `[]` is the ordinary case on
+        # this route, and a line reporting it on every merge would train the
+        # reader to skip the one that matters.
+        if conflicts := u.get("conflicts"):
+            if len(conflicts) == 1:
+                return f"The two sources disagree — {conflicts[0]}"
+            return (f"The two sources disagree on {len(conflicts)} points — "
+                    f"{conflicts[0]}")
+        return "Merged both answers"
 
     if node == "critic":
         if u.get("critique"):

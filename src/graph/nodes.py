@@ -435,22 +435,37 @@ def _contexts(state: AgentState) -> list[str]:
     return out
 
 
-def make_synthesize_node(synthesizer):
+def make_synthesize_node(synthesizer, detector=None):
     """Assemble the final result, or redraft it when the critic pushed back.
 
     `route` is derived from which specialists actually produced findings rather
     than predicted up front, so it reports what happened instead of what was
     intended.
+
+    The conflict check runs here rather than in a node of its own because it has
+    exactly one consumer: the merge it happens immediately before, which needs
+    the contradictions in its prompt. A separate node would buy a second
+    conditional edge and a channel to carry the result across it, for a call
+    that is already only made on the one route that can produce a conflict.
     """
     def synthesize_node(state: AgentState) -> dict:
         # A later finding from the same specialist supersedes an earlier one.
         by_agent = {f["agent"]: f for f in state.get("findings", [])}
         rag, sql = by_agent.get("rag"), by_agent.get("sql")
         critique = state.get("critique")
+        conflicts = state.get("conflicts")
 
         if rag and sql:
             route = "both"
-            answer = synthesizer.merge(_question(state), rag, sql)
+            # Detected once per turn. A redraft is the same two findings being
+            # written up again, so re-running the comparison would pay for a
+            # second call to be told the same thing - and, since the call is
+            # not deterministic, would sometimes be told something else.
+            if detector is not None and conflicts is None:
+                conflicts = detector.detect(_question(state), rag, sql)
+                if conflicts:
+                    print(f"  -> Conflict: {conflicts[0][:72]!r}")
+            answer = synthesizer.merge(_question(state), rag, sql, conflicts)
         elif rag:
             route, answer = "rag", rag["answer"]
         elif sql:
@@ -472,6 +487,7 @@ def make_synthesize_node(synthesizer):
             "data": sql.get("data") if sql else None,
             "sql": sql.get("sql") if sql else None,
             "critique": None,
+            "conflicts": conflicts,
         }
     return synthesize_node
 
