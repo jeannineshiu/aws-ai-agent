@@ -90,6 +90,12 @@ class AgentState(TypedDict, total=False):
     sql_error: str | None    # exception text, or the note that a query returned nothing
     last_sql: str | None     # the query that failed, fed back to the repairer
 
+    # conflict detection — `both` route only, and only before the first merge.
+    # [] means checked and compatible; None means never checked, which is every
+    # single-specialist turn. The app shows a warning on the first and nothing
+    # on the second, so the two cannot share a representation.
+    conflicts: list[str] | None
+
     # critic loop
     revisions: int
     critique: str | None     # claims the critic found unsupported

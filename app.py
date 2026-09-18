@@ -109,6 +109,9 @@ with tab_chat:
 
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
+            if msg.get("conflicts"):
+                st.warning("**The two sources disagree**\n\n"
+                           + "\n".join(f"- {c}" for c in msg["conflicts"]))
             st.markdown(msg["content"])
             if msg.get("data") is not None:
                 st.dataframe(msg["data"], width="stretch")
@@ -186,7 +189,8 @@ with tab_chat:
                     status = st.status("Working…", expanded=True)
                     for line in steps:
                         status.markdown(f"- {line}")
-                    route_box, answer_box = st.empty(), st.empty()
+                    route_box, conflict_box, answer_box = (
+                        st.empty(), st.empty(), st.empty())
 
                     draft = ""
                     for kind, payload in events:
@@ -225,7 +229,8 @@ with tab_chat:
                 else:
                     with st.spinner("Thinking..."):
                         result = agent.run(question)
-                    route_box, answer_box = st.empty(), st.empty()
+                    route_box, conflict_box, answer_box = (
+                        st.empty(), st.empty(), st.empty())
             except Exception as e:
                 if status is not None:
                     # Nothing closes the box on the way out of a plain `try`.
@@ -235,12 +240,19 @@ with tab_chat:
                     "role": "assistant",
                     "content": f"Error: {e}",
                     "data": None, "sql": None, "citations": [], "steps": steps,
+                    "conflicts": None,
                 })
                 st.stop()
 
             route_colors = {"rag": "🟢", "sql": "🔵", "both": "🟣"}
             route_emoji = route_colors.get(result["route"], "⚪")
             route_box.caption(f"{route_emoji} Route: `{result['route'].upper()}`")
+            # Above the answer, not in an expander: the answer states the
+            # conflict too, but a reader who has already decided to trust the
+            # first sentence has stopped reading by the time it comes up.
+            if result.get("conflicts"):
+                conflict_box.warning("**The two sources disagree**\n\n"
+                                     + "\n".join(f"- {c}" for c in result["conflicts"]))
             answer_box.markdown(result["answer"])
 
             if result.get("data") is not None and not result["data"].empty:
@@ -264,6 +276,7 @@ with tab_chat:
             "sql": result.get("sql"),
             "citations": result.get("citations", []),
             "steps": steps,
+            "conflicts": result.get("conflicts"),
         })
 
 

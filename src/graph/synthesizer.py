@@ -35,7 +35,7 @@ Documentation specialist:
 
 Data specialist:
 {sql_answer}
-
+{conflicts}
 Rules:
 - Lead with what directly answers the question. If the data identified a specific
   service or repository, name it in the first sentence.
@@ -47,6 +47,22 @@ Rules:
 - If the two specialists disagree or the documentation does not cover what the
   data found, say so plainly rather than papering over it.
 """)
+
+
+# Handed to the merge when the detector found contradictions. Naming both sides
+# is the whole point: an answer that says "sources vary" tells the reader there
+# is a problem without telling them what it is, which is worse than either
+# specialist's answer alone.
+CONFLICT_CLAUSE = """
+These specific points contradict each other:
+{items}
+
+State each of these in the answer, giving both figures or claims and which
+source each came from. Do not silently pick a side, average them, or drop the
+disputed fact. If one side is better evidence for this particular question -
+the database for what developers actually ask, the documentation for what a
+service officially supports - say which and why, but still report both.
+"""
 
 
 # The RAG prompt instructs the model to always cite. When retrieval turns up
@@ -90,16 +106,25 @@ class Synthesizer:
         self.llm = llm or ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=60)
 
     @staticmethod
+    def _conflict_clause(conflicts: list[str] | None) -> str:
+        if not conflicts:
+            return ""
+        return CONFLICT_CLAUSE.format(
+            items="\n".join(f"- {c}" for c in conflicts[:5]))
+
+    @staticmethod
     def strip_placeholder_citations(text: str) -> str:
         """Remove [Source: ...] markers that still contain <angle-bracket> slots."""
         return _PLACEHOLDER_CITATION.sub("", text).strip()
 
-    def merge(self, question: str, rag_finding: dict, sql_finding: dict) -> str:
+    def merge(self, question: str, rag_finding: dict, sql_finding: dict,
+              conflicts: list[str] | None = None) -> str:
         try:
             response = self.llm.invoke(SYNTHESIS_PROMPT.format_messages(
                 question=question,
                 rag_answer=rag_finding.get("answer", ""),
                 sql_answer=sql_finding.get("answer", ""),
+                conflicts=self._conflict_clause(conflicts),
             ), config={"tags": [ANSWER]})
             text = self.strip_placeholder_citations(response.content or "")
             if text:
@@ -108,7 +133,15 @@ class Synthesizer:
             pass
 
         # Degrade to v1's concatenation rather than dropping half the work.
+        # A detected conflict is prepended rather than dropped: this path is
+        # already showing the reader two answers to reconcile themselves, and
+        # the one thing worth knowing is that they do not agree.
+        note = ""
+        if conflicts:
+            listed = "\n".join(f"- {c}" for c in conflicts[:5])
+            note = f"**The two sources disagree:**\n{listed}\n\n"
         return (
+            f"{note}"
             f"**From documentation:**\n{rag_finding.get('answer','')}\n\n"
             f"**From data analysis:**\n{sql_finding.get('answer','')}"
         )
